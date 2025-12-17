@@ -1,0 +1,12 @@
+.customDialog {
+
+  & ::v-deep .el-dialog {
+    border-radius: 10px;
+  }
+
+  /* Dialog 内部 body 优化 */
+  & ::v-deep .el-dialog__body {
+    padding: 20px;
+  }
+}
+

@@ -1,0 +1,73 @@
+{
+  "name": "@vben/web-antd",
+  "version": "1.2.0",
+  "homepage": "https://vben.pro",
+  "bugs": "https://github.com/vbenjs/vue-vben-admin/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vbenjs/vue-vben-admin.git",
+    "directory": "apps/web-antd"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "vben",
+    "email": "ann.vben@gmail.com",
+    "url": "https://github.com/anncwb"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "pnpm vite build --mode production",
+    "build:analyze": "pnpm vite build --mode analyze",
+    "dev": "pnpm vite --mode development",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit --skipLibCheck"
+  },
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "dependencies": {
+    "@ant-design/icons-vue": "^7.0.1",
+    "@microsoft/fetch-event-source": "^2.0.1",
+    "@tinymce/tinymce-vue": "^6.0.1",
+    "@types/qrcode": "^1.5.5",
+    "@vben/access": "workspace:*",
+    "@vben/common-ui": "workspace:*",
+    "@vben/constants": "workspace:*",
+    "@vben/hooks": "workspace:*",
+    "@vben/icons": "workspace:*",
+    "@vben/layouts": "workspace:*",
+    "@vben/locales": "workspace:*",
+    "@vben/plugins": "workspace:*",
+    "@vben/preferences": "workspace:*",
+    "@vben/request": "workspace:*",
+    "@vben/stores": "workspace:*",
+    "@vben/styles": "workspace:*",
+    "@vben/types": "workspace:*",
+    "@vben/utils": "workspace:*",
+    "@vueuse/core": "catalog:",
+    "ant-design-vue": "catalog:",
+    "canvas-confetti": "^1.9.3",
+    "cropperjs": "^1.6.2",
+    "crypto-js": "^4.2.0",
+    "dayjs": "catalog:",
+    "echarts": "^5.5.1",
+    "embla-carousel": "^8.6.0",
+    "embla-carousel-vue": "^8.6.0",
+    "jsencrypt": "^3.3.2",
+    "lodash-es": "^4.17.21",
+    "pinia": "catalog:",
+    "qrcode": "^1.5.4",
+    "tinymce": "^7.3.0",
+    "unplugin-vue-components": "^0.27.3",
+    "vue": "catalog:",
+    "vue-draggable-plus": "^0.6.0",
+    "vue-element-plus-x": "^1.2.0",
+    "vue-router": "catalog:"
+  },
+  "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/crypto-js": "^4.2.2",
+    "@types/lodash-es": "^4.17.12",
+    "typescript": "^5.8.3"
+  }
+}

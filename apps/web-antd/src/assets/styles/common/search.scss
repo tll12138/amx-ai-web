@@ -1,0 +1,40 @@
+// 搜索查询垂直布局的样式
+.search {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #f4f5f8;
+  padding: 10px 0 30px;
+  ::v-deep .el-form-item {
+    margin-bottom: 0;
+    margin-left: 20px;
+  }
+  .btn-box {
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+    padding-right: 32px;
+    position: relative;
+    &::before {
+      content: "";
+      display: inline-block;
+      width: 1px;
+      height: 36px;
+      background-color: #f4f5f8;
+      position: absolute;
+      left: -32px;
+    }
+    .search-btn {
+      width: 80px;
+      font-size: 12px;
+      background: linear-gradient(270deg, #2656f8 0%, #10a9ff 100%);
+      color: #fff;
+      border-radius: 6px;
+      border: none;
+      margin-right: 6px;
+    }
+    .reset-btn {
+      width: 80px;
+      border-radius: 6px;
+    }
+  }
+}

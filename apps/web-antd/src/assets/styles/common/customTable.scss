@@ -1,0 +1,29 @@
+::v-deep .customTable {
+
+  border-radius: 10px; /* 给整个表格加圆角 */
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); /* 添加柔和的阴影 */
+
+  table {
+    background-color: #fff;
+  }
+
+  &.el-table .el-table__cell {
+    padding: 10px;
+  }
+
+  th.el-table__cell:not(.gutter) {
+    background-color: #4379ce;
+    color: #ffffff;
+    font-size: 14px;
+    height: 40px;
+    font-weight: 600;
+    border-bottom: 1px solid #e0e0e0; /* 底部边框 */
+    padding: 10px; /* 增加表头的内边距 */
+  }
+
+  .text-btn {
+    font-size: 14px;
+    color: #2656f8;
+  }
+}
+
