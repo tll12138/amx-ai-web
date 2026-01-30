@@ -20,12 +20,12 @@ export const ArticleTaskApi = {
 
     // 新增文章任务主
     create: async (data: any) => {
-        return await request.postWithMsg(`/rp/articleTask`, data);
+        return await request.postWithMsg(`/rp/articleTask/add`, data);
     },
 
     // 修改文章任务主
     update: async (data: any) => {
-        return await request.putWithMsg(`/rp/articleTask`, data);
+        return await request.putWithMsg(`/rp/articleTask/update`, data);
     },
 
     // 删除文章任务主

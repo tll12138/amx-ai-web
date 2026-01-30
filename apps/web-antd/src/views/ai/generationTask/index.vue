@@ -183,12 +183,13 @@ const sendRequest = (url: string, headers: Record<string, string>) => {
       }
     },
     onmessage(ev) {
+      console.log('ev', ev);
       if (ev.event === 'error') {
         handleDisconnect();
         message.error(ev.data);
         return;
       }
-      // console.log(ev.data);
+      console.log(ev.data);
       const jsonData = JSON.parse(ev.data);
       if (jsonData.isEnd) {
         generateStatus.value = 'done';

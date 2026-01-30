@@ -1,17 +1,25 @@
-<script setup name="AccountGroup" lang="ts">
+<script setup name="AccountConfig" lang="ts">
 import type { VbenFormProps } from '@vben/common-ui';
 
 import type { VxeGridProps } from '#/adapter/vxe-table';
 
+import { ref } from 'vue';
+
 import { Page, useVbenModal } from '@vben/common-ui';
 import { getVxePopupContainer } from '@vben/utils';
 
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons-vue';
+import {
+  DeleteOutlined,
+  EditOutlined,
+  ExportOutlined,
+  ImportOutlined,
+} from '@ant-design/icons-vue';
 import { Modal, Popconfirm, Space } from 'ant-design-vue';
 
 import { useVbenVxeGrid, vxeCheckboxChecked } from '#/adapter/vxe-table';
-import { AccountGroupApi } from '#/api/rp/accountGroup';
-import { AccountConfigApi } from '#/api/rp/accountConfig';
+import { baseName, baseUrl, AccountConfigApi } from '#/api/rp/accountConfig';
+import { ExcelUpload } from '#/components/ExcelUpload/index';
+import { commonDownloadExcel } from '#/utils/file/download';
 
 import { columns, querySchema } from './data';
 import ExtraModal from './edit-form.vue';
@@ -52,7 +60,7 @@ const gridOptions: VxeGridProps = {
   proxyConfig: {
     ajax: {
       query: async ({ page }, formValues) => {
-        return await AccountGroupApi.getList({
+        return await AccountConfigApi.getList({
           pageNum: page.currentPage,
           pageSize: page.pageSize,
           orderByColumn: 'create_time',
@@ -91,7 +99,7 @@ async function handleEdit(row: any) {
 }
 
 async function handleDelete(row: any) {
-  await AccountGroupApi.delete(row.id);
+  await AccountConfigApi.delete(row.id);
   await tableApi.query();
 }
 async function handleMultiDelete() {
@@ -102,20 +110,41 @@ async function handleMultiDelete() {
     okType: 'danger',
     content: `确认删除选中的${ids.length}条记录吗？`,
     onOk: async () => {
-      await AccountGroupApi.delete(ids);
+      await AccountConfigApi.delete(ids);
       await tableApi.query();
     },
   });
 }
+
+const excelUploadRef = ref();
+const templateUrl = ref(`${baseUrl}/importTemplate`);
+const title = ref(baseName);
+const url = ref(`${baseUrl}/importData`);
+// 导入相关
+const showUploadDialog = () => {
+  excelUploadRef.value.show();
+};
+
+async function handleUploadSuccess() {
+  await tableApi.query();
+}
+
+const handleExport = () => {
+  commonDownloadExcel(
+    AccountConfigApi.export,
+    'RPA账号配置',
+    tableApi.formApi.form.values,
+  );
+};
 </script>
 <template>
   <Page :auto-content-height="true">
-    <BasicTable class="flex-1 overflow-hidden" table-title="账号列表">
+    <BasicTable class="flex-1 overflow-hidden" :table-title="`${title}列表`">
       <template #toolbar-tools>
         <Space>
           <a-button
             type="primary"
-            v-access:code="['rp:accountGroup:add']"
+            v-access:code="['rp:accountConfig:add']"
             @click="handleAdd"
           >
             新增
@@ -124,11 +153,33 @@ async function handleMultiDelete() {
             :disabled="!vxeCheckboxChecked(tableApi)"
             danger
             type="primary"
-            v-access:code="['rp:accountGroup:remove']"
+            v-access:code="['rp:accountConfig:remove']"
             @click="handleMultiDelete"
           >
             删除
           </a-button>
+          <a-button
+            v-access:code="['rp:accountConfig:add']"
+            @click="showUploadDialog"
+          >
+            <template #icon><ImportOutlined /></template>
+            导入
+          </a-button>
+          <Popconfirm
+            title="确定要导出嘛？"
+            ok-text="确定"
+            cancel-text="取消"
+            @confirm="handleExport"
+          >
+            <a-button
+              v-access:code="['rp:accountConfig:export']"
+              type="primary"
+              color="red"
+            >
+              <template #icon><ExportOutlined /></template>
+              导出
+            </a-button>
+          </Popconfirm>
         </Space>
       </template>
       <template #action="{ row }">
@@ -136,7 +187,7 @@ async function handleMultiDelete() {
           <a-button
             size="small"
             type="link"
-            v-access:code="['rp:accountGroup:edit']"
+            v-access:code="['rp:accountConfig:edit']"
             @click="handleEdit(row)"
           >
             <template #icon><EditOutlined /></template>
@@ -151,7 +202,7 @@ async function handleMultiDelete() {
             <a-button
               type="link"
               danger
-              v-access:code="['rp:accountGroup:remove']"
+              v-access:code="['rp:accountConfig:remove']"
               @click.stop=""
             >
               <template #icon><DeleteOutlined /></template>
@@ -162,5 +213,12 @@ async function handleMultiDelete() {
       </template>
     </BasicTable>
     <BasicModal @reload="tableApi.query()" />
+    <ExcelUpload
+      @success="handleUploadSuccess"
+      :template-url="templateUrl"
+      :title="title"
+      :url="url"
+      ref="excelUploadRef"
+    />
   </Page>
 </template>
