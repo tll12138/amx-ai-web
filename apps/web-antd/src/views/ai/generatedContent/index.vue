@@ -1,11 +1,11 @@
-<script setup name="ArticleTask" lang="ts">
+<script setup name="GeneratedContent" lang="ts">
 import type { VbenFormProps } from '@vben/common-ui';
 
 import type { VxeGridProps } from '#/adapter/vxe-table';
 
 import { ref } from 'vue';
 
-import { Page, useVbenDrawer } from '@vben/common-ui';
+import { Page, useVbenModal } from '@vben/common-ui';
 import { getVxePopupContainer } from '@vben/utils';
 
 import {
@@ -14,15 +14,15 @@ import {
   ExportOutlined,
   ImportOutlined,
 } from '@ant-design/icons-vue';
-import { Drawer, Popconfirm, Space } from 'ant-design-vue';
+import { Modal, Popconfirm, Space } from 'ant-design-vue';
 
 import { useVbenVxeGrid, vxeCheckboxChecked } from '#/adapter/vxe-table';
-import { ArticleTaskApi, baseName, baseUrl } from '#/api/rp/articleTask';
+import { baseName, baseUrl, GeneratedContentApi } from '#/api/ai/generatedContent';
 import { ExcelUpload } from '#/components/ExcelUpload/index';
 import { commonDownloadExcel } from '#/utils/file/download';
 
 import { columns, querySchema } from './data';
-import ExtraDrawer from './edit-form.vue';
+import ExtraModal from './edit-form.vue';
 
 // 搜索框
 const formOptions: VbenFormProps = {
@@ -60,7 +60,7 @@ const gridOptions: VxeGridProps = {
   proxyConfig: {
     ajax: {
       query: async ({ page }, formValues) => {
-        return await ArticleTaskApi.getList({
+        return await GeneratedContentApi.getList({
           pageNum: page.currentPage,
           pageSize: page.pageSize,
           orderByColumn: 'create_time',
@@ -84,36 +84,33 @@ const [BasicTable, tableApi] = useVbenVxeGrid({
   gridOptions,
 });
 
-const [BasicDrawer, drawerApi] = useVbenDrawer({
+const [BasicModal, modalApi] = useVbenModal({
   // 连接抽离的组件
-  connectedComponent: ExtraDrawer,
+  connectedComponent: ExtraModal,
 });
 
 function handleAdd() {
-  drawerApi.setData({});
-  drawerApi.open();
+  modalApi.setData({});
+  modalApi.open();
 }
 async function handleEdit(row: any) {
-  drawerApi.setData({
-    id: row.id,
-    type: 'view'
-  });
-  drawerApi.open();
+  modalApi.setData({ id: row.id });
+  modalApi.open();
 }
 
 async function handleDelete(row: any) {
-  await ArticleTaskApi.delete(row.id);
+  await GeneratedContentApi.delete(row.id);
   await tableApi.query();
 }
 async function handleMultiDelete() {
   const rows = tableApi.grid.getCheckboxRecords();
   const ids = rows.map((row) => row.id);
-  Drawer.confirm({
+  Modal.confirm({
     title: '提示',
     okType: 'danger',
     content: `确认删除选中的${ids.length}条记录吗？`,
     onOk: async () => {
-      await ArticleTaskApi.delete(ids);
+      await GeneratedContentApi.delete(ids);
       await tableApi.query();
     },
   });
@@ -134,8 +131,8 @@ async function handleUploadSuccess() {
 
 const handleExport = () => {
   commonDownloadExcel(
-    ArticleTaskApi.export,
-    '文章任务',
+    GeneratedContentApi.export,
+    'AI生成内容解析',
     tableApi.formApi.form.values,
   );
 };
@@ -146,27 +143,13 @@ const handleExport = () => {
       <template #toolbar-tools>
         <Space>
           <a-button
-            type="primary"
-            v-access:code="['rp:articleTask:add']"
-            @click="handleAdd"
-          >
-            新增
-          </a-button>
-          <a-button
             :disabled="!vxeCheckboxChecked(tableApi)"
             danger
             type="primary"
-            v-access:code="['rp:articleTask:remove']"
+            v-access:code="['ai:generatedContent:remove']"
             @click="handleMultiDelete"
           >
             删除
-          </a-button>
-          <a-button
-            v-access:code="['rp:articleTask:add']"
-            @click="showUploadDialog"
-          >
-            <template #icon><ImportOutlined /></template>
-            导入
           </a-button>
           <Popconfirm
             title="确定要导出嘛？"
@@ -175,7 +158,7 @@ const handleExport = () => {
             @confirm="handleExport"
           >
             <a-button
-              v-access:code="['rp:articleTask:export']"
+              v-access:code="['ai:generatedContent:export']"
               type="primary"
               color="red"
             >
@@ -187,15 +170,6 @@ const handleExport = () => {
       </template>
       <template #action="{ row }">
         <Space>
-          <a-button
-            size="small"
-            type="link"
-            v-access:code="['rp:articleTask:edit']"
-            @click="handleEdit(row)"
-          >
-            <template #icon><EditOutlined /></template>
-            编辑
-          </a-button>
           <Popconfirm
             :get-popup-container="getVxePopupContainer"
             placement="left"
@@ -205,7 +179,7 @@ const handleExport = () => {
             <a-button
               type="link"
               danger
-              v-access:code="['rp:articleTask:remove']"
+              v-access:code="['ai:generatedContent:remove']"
               @click.stop=""
             >
               <template #icon><DeleteOutlined /></template>
@@ -215,7 +189,7 @@ const handleExport = () => {
         </Space>
       </template>
     </BasicTable>
-    <BasicDrawer @reload="tableApi.query()" />
+    <BasicModal @reload="tableApi.query()" />
     <ExcelUpload
       @success="handleUploadSuccess"
       :template-url="templateUrl"

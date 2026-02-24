@@ -16,6 +16,7 @@ export enum DictEnum {
   WF_FORM_TYPE = 'wf_form_type', // 表单类型
   WF_TASK_STATUS = 'wf_task_status', // 任务状态
   SYS_ENABLE = 'sys_enable', // 是否
+  IS_USED = 'is_used',
 
   // 商品类型
   PRODUCT_TYPE = 'product_type', // 商品类型

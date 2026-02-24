@@ -11,6 +11,7 @@ import { getDictOptions } from '#/utils/dict';
 import Step2 from '#/views/rp/articleTask/components/step2.vue';
 
 import AccountSelect from './components/AccountSelect.vue';
+import {ArticleTaskApi} from "#/api/rp/articleTask";
 
 const emit = defineEmits<{ reload: [] }>();
 
@@ -126,19 +127,64 @@ async function handleConfirm() {
       message.warning('请完善内容设置');
       return;
     }
-    console.log('提交表单数据:', step2.value.validate());
 
-    // 这里可以添加最终的提交逻辑
     console.log('提交的数据:', {
       platform: stepParams.value.platform,
       accounts: selectedAccountDetails.value,
       content: step2FormData.value,
     });
 
-    return;
-    message.success('任务创建成功');
-    drawerApi.close();
-    emit('reload');
+    try {
+      // 1. 组装 RpArticleTaskBo 核心数据
+      const articleTaskBo = {
+        // 任务名称（必填）
+        taskName: step2FormData.value.taskName,
+        // 平台标识（必填）
+        platform: stepParams.value.platform,
+        // 账号列表：映射为 RpAccount 结构
+        accounts: selectedAccountDetails.value.map(account => ({
+          id: account.id, // 账号ID（Long类型）
+          accountName: account.name, // 账号名称
+          groupId: account.groupId, // 所属分组ID
+          platform: stepParams.value.platform, // 平台标识（冗余字段）
+          status: 1 // 默认启用状态
+        })),
+        // 发布内容主体：RpContentInfo 结构
+        content: {
+          taskName: step2FormData.value.taskName,
+          // 内容分组列表：映射为 RpContentGroupInfo 数组
+          contentGroups: step2FormData.value.contentGroups.map(group => ({
+            type: group.mediaType.toString(), // 媒体类型（0-图片 1-视频）
+            video: group.video, // 视频地址
+            picList: group.picList, // 图片地址列表
+            publishTime: group.publishTime, // 发布时间
+            title: group.title, // 笔记标题
+            content: group.content, // 笔记正文
+            selectedTags: group.selectedTags, // 选中的标签列表
+            tagList: group.tagList, // 标签列表
+            accountId: group.selectedAccount, // 选中的发布账号ID
+            url: group.url, // 笔记链接
+            taskId: 0 // 任务ID暂未生成，默认0
+          }))
+        },
+        // 可选字段
+        description: '', // 任务描述（日志无，默认空）
+        totalArticles: step2FormData.value.contentGroups.length, // 文章数量（contentGroups长度）
+        status: 0 // 任务状态：0-未开始
+      };
+
+      // 2. 调用创建接口
+      await ArticleTaskApi.create(articleTaskBo);
+
+      // 3. 提交成功处理
+      message.success('任务创建成功');
+      drawerApi.close();
+      emit('reload');
+    } catch (error) {
+      // 4. 提交失败处理
+      console.error('创建文章任务失败:', error);
+      message.error('任务创建失败，请稍后重试');
+    }
   }
 }
 

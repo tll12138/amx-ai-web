@@ -5,10 +5,13 @@ import { DictEnum } from '@vben/constants';
 
 import { PlusOutlined } from '@ant-design/icons-vue';
 import message from 'ant-design-vue/es/message';
+import { Modal, Space } from 'ant-design-vue';
 
 import { CommonApi } from '#/api/xhs/common';
 import { ImageUpload, VideoUpload } from '#/components/upload';
 import { getDictOptions } from '#/utils/dict';
+import { GeneratedContentApi } from '#/api/ai/generatedContent'; // 引入AI内容API
+import { useVbenVxeGrid, type VxeGridProps } from '#/adapter/vxe-table'; // 引入表格适配器
 
 // 定义接口类型
 interface Account {
@@ -68,6 +71,87 @@ const parsingLoading = ref<boolean[]>([]);
 
 // 用于存储每个内容组的视频链接输入
 const videoUrlInputs = ref<string[]>([]);
+
+// 新增：AI内容选择弹窗相关
+const selectContentModalVisible = ref(false); // 选择弹窗是否显示
+const currentGroupIndex = ref(-1); // 当前操作的内容组索引
+const selectContentGridLoading = ref(false); // 选择列表加载状态
+
+// 新增：解析keywordAnalysis为干净的标签列表（处理#、逗号、顿号、空格分隔）
+const parseKeywordAnalysis = (keywordAnalysis: any): string[] => {
+  if (!keywordAnalysis) return [];
+
+  // 统一转成数组处理（兼容字符串/数组格式）
+  const keywordList = Array.isArray(keywordAnalysis) ? keywordAnalysis : [keywordAnalysis];
+
+  // 使用Set自动去重
+  const tagSet = new Set<string>();
+
+  // 遍历每个关键词字符串，解析标签
+  keywordList.forEach(keywordStr => {
+    if (typeof keywordStr !== 'string' || !keywordStr.trim()) return;
+
+    // 步骤1：移除所有#号
+    let cleanStr = keywordStr.replace(/#/g, '').trim();
+    // 步骤2：按 逗号(中英文)、顿号、空格 分割成单个标签
+    const tags = cleanStr.split(/[,，、\s]+/);
+    // 步骤3：过滤空标签并去重
+    tags.forEach(tag => {
+      const trimTag = tag.trim();
+      if (trimTag) {
+        tagSet.add(trimTag);
+      }
+    });
+  });
+
+  // 转数组返回（保证顺序且去重）
+  return Array.from(tagSet);
+};
+
+// 新增：选择列表表格配置
+const selectContentGridOptions: VxeGridProps = {
+  checkboxConfig: {
+    highlight: true,
+    reserve: true,
+    trigger: 'cell',
+  },
+  columns: [
+    { type: 'checkbox', width: 60 },
+    { title: '生成时间', field: 'generateTime', width: 200 },
+    { title: '解析标题', field: 'parsedTitle', minWidth: 180 },
+    { title: '解析正文', field: 'parsedParagraphs', minWidth: 300, showOverflow: 'tooltip' },
+    { title: '解析标签', field: 'keywordAnalysis', width: 200 },
+  ],
+  height: 400,
+  keepSource: true,
+  pagerConfig: { pageSize: 10 },
+  proxyConfig: {
+    ajax: {
+      query: async ({ page }) => {
+        selectContentGridLoading.value = true;
+        try {
+          const res = await GeneratedContentApi.getList({
+            pageNum: page.currentPage,
+            pageSize: page.pageSize,
+            orderByColumn: 'generateTime',
+            isAsc: 'desc',
+            isUsed: '0'
+          });
+          return res;
+        } finally {
+          selectContentGridLoading.value = false;
+        }
+      },
+    },
+  },
+  rowConfig: { keyField: 'id' },
+  toolbarConfig: { refresh: true },
+};
+
+// 初始化选择列表表格
+const [SelectContentTable, selectContentTableApi] = useVbenVxeGrid({
+  gridOptions: selectContentGridOptions,
+});
 
 // 计算属性
 const selectedAccountObjList = computed<Account[]>(() => {
@@ -231,8 +315,6 @@ const handleTagsChange = (newTags: string[], groupIndex: number) => {
   }
 };
 
-// 处理视频上传变化（已移除，VideoUpload 组件直接支持 UploadFile 数组）
-
 // 表单验证
 const validate = async (): Promise<boolean> => {
   try {
@@ -301,6 +383,52 @@ function initializeContentGroups() {
   // 更新内容组列表
   formState.contentGroups = contentGroups;
 }
+
+// 新增：打开AI内容选择弹窗
+const openSelectContentModal = (index: number) => {
+  currentGroupIndex.value = index;
+  selectContentModalVisible.value = true;
+  // 刷新表格数据
+  selectContentTableApi.reload();
+};
+
+// 新增：确认选择AI内容并填充
+const handleSelectContentConfirm = async () => {
+  const selectedRows = selectContentTableApi.grid.getCheckboxRecords();
+  if (selectedRows.length === 0) {
+    message.warn('请选择至少一条AI生成内容');
+    return;
+  }
+
+  const selectedRow = selectedRows[0]; // 只取第一条
+  const targetGroup = formState.contentGroups[currentGroupIndex.value];
+
+  try {
+    // 填充基础字段
+    targetGroup.title = selectedRow.parsedTitle || '';
+    targetGroup.content = selectedRow.parsedParagraphs || '';
+
+    // 解析关键词为干净的标签列表
+    const tagList = parseKeywordAnalysis(selectedRow.keywordAnalysis);
+    targetGroup.tagList = tagList;
+
+    // 根据平台限制选择默认标签数量
+    const limit = maxTagCount.value;
+    if (limit !== undefined) {
+      // 按平台限制截取（小红书10个，抖音5个）
+      targetGroup.selectedTags = tagList.slice(0, limit);
+    } else {
+      // 无限制时默认选前5个
+      targetGroup.selectedTags = tagList.slice(0, 5);
+    }
+
+    message.success('AI生成内容填充成功');
+    selectContentModalVisible.value = false;
+  } catch (e) {
+    console.error('解析AI内容失败:', e);
+    message.error('解析AI内容失败，请检查数据格式');
+  }
+};
 
 // 监听数据变化
 watch(
@@ -416,6 +544,14 @@ defineExpose({
             </div>
           </div>
           <div class="header-actions">
+            <!-- 新增：选择AI生成内容按钮 -->
+            <a-button
+              type="default"
+              style="margin-right: 8px"
+              @click="openSelectContentModal(groupIndex)"
+            >
+              选择AI生成内容
+            </a-button>
             <a-input-search
               v-model:value="contentGroup.url"
               allow-clear
@@ -633,6 +769,26 @@ defineExpose({
         </div>
       </div>
     </div>
+
+    <!-- 新增：AI生成内容选择弹窗 -->
+    <Modal
+      v-model:open="selectContentModalVisible"
+      title="选择AI生成内容"
+      width="80%"
+      destroyOnClose
+      @ok="handleSelectContentConfirm"
+      @cancel="selectContentModalVisible = false"
+    >
+      <div style="height: 400px; margin-bottom: 16px">
+        <SelectContentTable :table-loading="selectContentGridLoading" />
+      </div>
+      <template #footer>
+        <Space>
+          <a-button @click="selectContentModalVisible = false">取消</a-button>
+          <a-button type="primary" @click="handleSelectContentConfirm">确认选择</a-button>
+        </Space>
+      </template>
+    </Modal>
   </div>
 </template>
 
