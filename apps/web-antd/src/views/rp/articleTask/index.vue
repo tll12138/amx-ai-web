@@ -94,10 +94,7 @@ function handleAdd() {
   drawerApi.open();
 }
 async function handleEdit(row: any) {
-  drawerApi.setData({
-    id: row.id,
-    type: 'view'
-  });
+  drawerApi.setData({ id: row.id });
   drawerApi.open();
 }
 
