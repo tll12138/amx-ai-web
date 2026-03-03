@@ -18,7 +18,7 @@ const defaultPreferences: Preferences = {
     layout: 'header-nav',
     locale: 'zh-CN',
     loginExpiredMode: 'page',
-    name: '蚁媒矩阵',
+    name: '智能营销',
     preferencesButtonPosition: 'auto',
     watermark: false,
   },

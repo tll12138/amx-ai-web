@@ -37,4 +37,9 @@ export const ArticleDetailApi = {
     export: async (data: any) => {
         return await commonExport(`/rp/articleDetail/export`, data);
     },
+
+    // 查询该主任务下所有明细
+    getListByMain: async (mainId: number | string) => {
+      return await request.get(`/rp/articleDetail/list/${mainId}`);
+    },
 };

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch, nextTick } from 'vue';
 
 import { DictEnum } from '@vben/constants';
 
@@ -31,6 +31,8 @@ interface ContentGroup {
   tagList: string[];
   selectedAccount: string;
   url: string;
+  ifControlEvaluation: 0 | 1;
+  controlEvaluationContent: string;
 }
 
 interface CreateForm {
@@ -72,12 +74,21 @@ const parsingLoading = ref<boolean[]>([]);
 // 用于存储每个内容组的视频链接输入
 const videoUrlInputs = ref<string[]>([]);
 
-// 新增：AI内容选择弹窗相关
+// 文案优化相关状态
+const optimizeLoading = ref<boolean[]>([]); // 每个内容组的优化加载状态
+const originalContentMap = ref<Record<number, string>>({}); // 存储每个内容组的原始正文（用于回退）
+
+// AI内容选择弹窗相关
 const selectContentModalVisible = ref(false); // 选择弹窗是否显示
 const currentGroupIndex = ref(-1); // 当前操作的内容组索引
 const selectContentGridLoading = ref(false); // 选择列表加载状态
 
-// 新增：解析keywordAnalysis为干净的标签列表（处理#、逗号、顿号、空格分隔）
+// 标记是否已初始化，避免重复覆盖
+const isInitialized = ref(false);
+// 标记是否已设置表单数据
+const isFormDataSet = ref(false);
+
+// 解析keywordAnalysis为干净的标签列表（处理#、逗号、顿号、空格分隔）
 const parseKeywordAnalysis = (keywordAnalysis: any): string[] => {
   if (!keywordAnalysis) return [];
 
@@ -108,7 +119,7 @@ const parseKeywordAnalysis = (keywordAnalysis: any): string[] => {
   return Array.from(tagSet);
 };
 
-// 新增：选择列表表格配置
+// 选择列表表格配置
 const selectContentGridOptions: VxeGridProps = {
   checkboxConfig: {
     highlight: true,
@@ -202,11 +213,14 @@ const addContentGroup = (): void => {
     tagList: [],
     selectedAccount: '',
     url: '',
+    ifControlEvaluation: 0,
+    controlEvaluationContent: '',
   };
 
   formState.contentGroups.push(newGroup);
   parsingLoading.value.push(false);
   videoUrlInputs.value.push('');
+  optimizeLoading.value.push(false); // 初始化优化加载状态
 };
 
 const removeContentGroup = (index: number): void => {
@@ -215,6 +229,70 @@ const removeContentGroup = (index: number): void => {
     // Remove the corresponding loading state
     parsingLoading.value.splice(index, 1);
     videoUrlInputs.value.splice(index, 1);
+    optimizeLoading.value.splice(index, 1); // 移除对应优化加载状态
+
+    // 清理原始内容映射并重新索引
+    delete originalContentMap.value[index];
+    const newMap: Record<number, string> = {};
+    Object.keys(originalContentMap.value).forEach(key => {
+      const numKey = Number(key);
+      if (numKey > index) {
+        newMap[numKey - 1] = originalContentMap.value[numKey];
+      } else if (numKey < index) {
+        newMap[numKey] = originalContentMap.value[numKey];
+      }
+    });
+    originalContentMap.value = newMap;
+  }
+};
+
+// 文案优化方法
+const optimizeContent = async (groupIndex: number) => {
+  const group = formState.contentGroups[groupIndex];
+  console.log('optimizeContent', group.content);
+  if (!group || !group.content.trim() || '') {
+    message.warn('请输入需要优化的文案内容');
+    return;
+  }
+
+  // 保存原始内容（仅第一次优化时保存）
+  if (!originalContentMap.value[groupIndex]) {
+    originalContentMap.value[groupIndex] = group.content;
+  }
+
+  try {
+    optimizeLoading.value[groupIndex] = true;
+    // 调用AI文案优化API（需根据实际接口调整参数）
+    const res = await CommonApi.generateContent({
+      content: group.content.trim(),
+    });
+
+    if (res) {
+      group.content = res.content || res.title || '';
+      message.success('文案优化成功');
+    } else {
+      message.warn('未获取到优化后的文案');
+    }
+  } catch (error) {
+    console.error('文案优化失败:', error);
+    message.error('文案优化失败，请稍后重试');
+  } finally {
+    optimizeLoading.value[groupIndex] = false;
+  }
+};
+
+// 文案回退方法
+const revertContent = (groupIndex: number) => {
+  const group = formState.contentGroups[groupIndex];
+  const originalContent = originalContentMap.value[groupIndex];
+
+  if (originalContent) {
+    group.content = originalContent;
+    // 可选：回退后清空该索引的原始内容（下次优化重新保存）
+    // delete originalContentMap.value[groupIndex];
+    message.success('文案已回退到优化前版本');
+  } else {
+    message.warn('暂无可回退的原始文案');
   }
 };
 
@@ -377,14 +455,50 @@ function initializeContentGroups() {
       tagList: [],
       selectedAccount: account.id,
       url: '',
+      controlEvaluationContent: '',
+      ifControlEvaluation: 0,
     });
   });
 
   // 更新内容组列表
   formState.contentGroups = contentGroups;
+
+  // 同步初始化辅助数组
+  parsingLoading.value = Array.from({ length: contentGroups.length }, () => false);
+  videoUrlInputs.value = Array.from({ length: contentGroups.length }, () => '');
+  optimizeLoading.value = Array.from({ length: contentGroups.length }, () => false); // 新增
 }
 
-// 新增：打开AI内容选择弹窗
+// 初始化默认内容组（从props获取）
+function initDefaultContentGroups() {
+  // 有父组件传递的初始数据 → 不执行默认初始化
+  if (props.defaultContentGroups && props.defaultContentGroups.length > 0) return;
+
+  const selectedAccounts = props.selectedAccounts;
+  const contentGroups = [] as ContentGroup[];
+  selectedAccounts.forEach((account) => {
+    contentGroups.push({
+      mediaType: 1,
+      video: '',
+      picList: [],
+      publishTime: '',
+      title: '',
+      content: '',
+      selectedTags: [],
+      tagList: [],
+      selectedAccount: account.id,
+      url: '',
+      controlEvaluationContent: '',
+      ifControlEvaluation: 0,
+    });
+  });
+  formState.contentGroups = contentGroups;
+  parsingLoading.value = Array.from({ length: contentGroups.length }, () => false);
+  videoUrlInputs.value = Array.from({ length: contentGroups.length }, () => '');
+  optimizeLoading.value = Array.from({ length: contentGroups.length }, () => false); // 新增
+}
+
+// 打开AI内容选择弹窗
 const openSelectContentModal = (index: number) => {
   currentGroupIndex.value = index;
   selectContentModalVisible.value = true;
@@ -392,7 +506,7 @@ const openSelectContentModal = (index: number) => {
   selectContentTableApi.reload();
 };
 
-// 新增：确认选择AI内容并填充
+// 确认选择AI内容并填充
 const handleSelectContentConfirm = async () => {
   const selectedRows = selectContentTableApi.grid.getCheckboxRecords();
   if (selectedRows.length === 0) {
@@ -439,45 +553,92 @@ watch(
   { deep: true },
 );
 
-// 当平台变化时，重新生成任务名称
+// 当平台变化时，重新生成任务名称（仅当无默认任务名时）
 watch(
   () => props.platform,
   (newVal, oldVal) => {
-    if (newVal !== oldVal) {
+    if (newVal !== oldVal && !props.defaultTaskName) {
       formState.taskName = generateTaskName();
     }
   },
   { immediate: true },
 );
 
+// 优化：监听默认数据变化，同步更新表单（不覆盖已有数据）
+watch(
+  [() => props.defaultContentGroups, () => props.defaultTaskName],
+  ([newContentGroups, newTaskName]) => {
+    // 核心：仅当未设置过数据、且有有效数据时执行，避免循环
+    if (isFormDataSet.value || !newContentGroups || newContentGroups.length === 0) return;
+
+    console.log('Step2接收父组件初始数据（仅一次）:', { newContentGroups, newTaskName });
+    // 仅赋值，不触发 @update:form-data（避免反哺父组件）
+    if (newTaskName && newTaskName.trim()) {
+      formState.taskName = newTaskName;
+    }
+    if (newContentGroups && newContentGroups.length > 0) {
+      formState.contentGroups = JSON.parse(JSON.stringify(newContentGroups)).map(group => ({
+        mediaType: group.mediaType || 0,
+        video: group.video || '',
+        picList: group.picList || [],
+        publishTime: group.publishTime || '',
+        title: group.title || '',
+        content: group.content || '',
+        selectedTags: group.selectedTags || [],
+        tagList: group.tagList || [],
+        selectedAccount: group.selectedAccount || '',
+        url: group.url || '',
+        taskId: group.taskId || 0,
+        publishStatus: group.publishStatus || 0,
+        controlEvaluationContent: group.controlEvaluationContent || '',
+        ifControlEvaluation: group.ifControlEvaluation || 0,
+      }));
+      parsingLoading.value = Array.from({ length: newContentGroups.length }, () => false);
+      videoUrlInputs.value = Array.from({ length: newContentGroups.length }, () => '');
+      optimizeLoading.value = Array.from({ length: newContentGroups.length }, () => false); // 新增
+      isFormDataSet.value = true; // 标记已设置，不再执行
+      console.log('Step2同步父组件初始数据完成（仅一次）:', formState.contentGroups);
+    }
+  },
+  { immediate: true } // 移除 deep: true，避免监听内部字段变化触发循环
+);
+
+// 监听选中账号+默认数据，仅初始化一次
+watch(
+  () => props.selectedAccounts,
+  async (newSelectedAccounts) => {
+    if (isInitialized.value) return;
+    await nextTick();
+    initDefaultContentGroups();
+    optimizeLoading.value = Array.from({ length: formState.contentGroups.length }, () => false); // 新增
+    isInitialized.value = true;
+    console.log('Step2首次初始化完成（仅一次）:', formState);
+  },
+  { immediate: true } // 移除 deep: true（selectedAccounts 是数组，浅监听即可）
+);
+
 // 生命周期
 onMounted(() => {
-  // 初始化数据
-  formState.taskName = generateTaskName();
-  console.log('初始化数据:', formState);
-
-  if (props.defaultContentGroups && props.defaultContentGroups.length > 0) {
-    formState.contentGroups = props.defaultContentGroups;
-  } else {
-    // 默认添加一个内容组
-    initializeContentGroups();
-  }
-
-  parsingLoading.value = Array.from(
-    { length: formState.contentGroups.length },
-    () => false,
-  );
-
-  videoUrlInputs.value = Array.from(
-    { length: formState.contentGroups.length },
-    () => '',
-  );
+  // 初始化数据：优先使用父组件传递的默认值
+  initDefaultContentGroups();
+  console.log('Step2初始化完成:', formState);
 });
 
 // 暴露给父组件的方法
 defineExpose({
   validate,
   getFormData: () => formState,
+  // 允许父组件主动设置表单数据
+  setFormData: (data: CreateForm) => {
+    formState.taskName = data.taskName || '';
+    formState.contentGroups = data.contentGroups || [];
+    // 同步更新辅助数组
+    parsingLoading.value = Array.from({ length: formState.contentGroups.length }, () => false);
+    videoUrlInputs.value = Array.from({ length: formState.contentGroups.length }, () => '');
+    optimizeLoading.value = Array.from({ length: formState.contentGroups.length }, () => false); // 新增
+    originalContentMap.value = {}; // 清空原始内容映射
+    isFormDataSet.value = true; // 标记已设置
+  }
 });
 </script>
 
@@ -544,7 +705,7 @@ defineExpose({
             </div>
           </div>
           <div class="header-actions">
-            <!-- 新增：选择AI生成内容按钮 -->
+            <!-- 选择AI生成内容按钮 -->
             <a-button
               type="default"
               style="margin-right: 8px"
@@ -724,6 +885,25 @@ defineExpose({
               :maxlength="900"
               show-count
             />
+            <!-- 小红书专属：文案优化和回退按钮 -->
+            <div v-if="props.platform === '小红书'" class="optimize-btn-group" style="margin-top: 8px;">
+              <a-button
+                type="primary"
+                size="small"
+                :loading="optimizeLoading[groupIndex]"
+                @click="optimizeContent(groupIndex)"
+                style="margin-right: 8px"
+              >
+                文案优化
+              </a-button>
+              <a-button
+                size="small"
+                @click="revertContent(groupIndex)"
+                :disabled="!originalContentMap[groupIndex]"
+              >
+                回退
+              </a-button>
+            </div>
           </div>
 
           <!-- 标签选择 -->
@@ -751,6 +931,32 @@ defineExpose({
             </a-select>
           </div>
 
+          <!-- 抖音专属：控评设置 -->
+          <div v-if="props.platform === '抖音'" class="form-section control-evaluation-section" style="margin-top: 24px;">
+            <div class="section-title">
+              <i class="a-icon-message"></i>
+              <span>控评设置</span>
+            </div>
+            <a-space direction="vertical" style="width: 100%">
+              <a-space>
+                <span>是否控评：</span>
+                <a-switch
+                  v-model:checked="contentGroup.ifControlEvaluation"
+                  :checked-value="1"
+                  :unchecked-value="0"
+                />
+              </a-space>
+              <a-textarea
+                v-if="contentGroup.ifControlEvaluation === 1"
+                v-model:value="contentGroup.controlEvaluationContent"
+                placeholder="请输入控评内容，例如：置顶评论、引导关注等"
+                :rows="3"
+                :maxlength="500"
+                show-count
+              />
+            </a-space>
+          </div>
+
           <!-- 删除按钮 -->
           <div
             v-if="formState.contentGroups.length > 1"
@@ -770,7 +976,7 @@ defineExpose({
       </div>
     </div>
 
-    <!-- 新增：AI生成内容选择弹窗 -->
+    <!-- AI生成内容选择弹窗 -->
     <Modal
       v-model:open="selectContentModalVisible"
       title="选择AI生成内容"

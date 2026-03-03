@@ -90,11 +90,11 @@ const [BasicDrawer, drawerApi] = useVbenDrawer({
 });
 
 function handleAdd() {
-  drawerApi.setData({});
+  drawerApi.setData({ isAdd: true, id: undefined });
   drawerApi.open();
 }
 async function handleEdit(row: any) {
-  drawerApi.setData({ id: row.id });
+  drawerApi.setData({ isAdd: false, id: row.id });
   drawerApi.open();
 }
 
@@ -212,7 +212,7 @@ const handleExport = () => {
         </Space>
       </template>
     </BasicTable>
-    <BasicDrawer @reload="tableApi.query()" />
+    <BasicDrawer @reload="tableApi.query()" @close="() => drawerApi.setData({ isAdd: true, id: undefined })" />
     <ExcelUpload
       @success="handleUploadSuccess"
       :template-url="templateUrl"

@@ -1,4 +1,4 @@
-<script setup name="ArticleDetail" lang="ts">
+<script setup name="BitAccount" lang="ts">
 import type { VbenFormProps } from '@vben/common-ui';
 
 import type { VxeGridProps } from '#/adapter/vxe-table';
@@ -17,7 +17,7 @@ import {
 import { Modal, Popconfirm, Space } from 'ant-design-vue';
 
 import { useVbenVxeGrid, vxeCheckboxChecked } from '#/adapter/vxe-table';
-import { baseName, baseUrl, ArticleDetailApi } from '#/api/rp/articleDetail';
+import { baseName, baseUrl, BitAccountApi } from '#/api/rp/bitAccount';
 import { ExcelUpload } from '#/components/ExcelUpload/index';
 import { commonDownloadExcel } from '#/utils/file/download';
 
@@ -60,7 +60,7 @@ const gridOptions: VxeGridProps = {
   proxyConfig: {
     ajax: {
       query: async ({ page }, formValues) => {
-        return await ArticleDetailApi.getList({
+        return await BitAccountApi.getList({
           pageNum: page.currentPage,
           pageSize: page.pageSize,
           orderByColumn: 'create_time',
@@ -99,7 +99,7 @@ async function handleEdit(row: any) {
 }
 
 async function handleDelete(row: any) {
-  await ArticleDetailApi.delete(row.id);
+  await BitAccountApi.delete(row.id);
   await tableApi.query();
 }
 async function handleMultiDelete() {
@@ -110,7 +110,7 @@ async function handleMultiDelete() {
     okType: 'danger',
     content: `确认删除选中的${ids.length}条记录吗？`,
     onOk: async () => {
-      await ArticleDetailApi.delete(ids);
+      await BitAccountApi.delete(ids);
       await tableApi.query();
     },
   });
@@ -131,8 +131,8 @@ async function handleUploadSuccess() {
 
 const handleExport = () => {
   commonDownloadExcel(
-    ArticleDetailApi.export,
-    '文章任务明细',
+    BitAccountApi.export,
+    '比特账号信息',
     tableApi.formApi.form.values,
   );
 };
@@ -142,29 +142,29 @@ const handleExport = () => {
     <BasicTable class="flex-1 overflow-hidden" :table-title="`${title}列表`">
       <template #toolbar-tools>
         <Space>
-<!--          <a-button-->
-<!--            type="primary"-->
-<!--            v-access:code="['rp:articleDetail:add']"-->
-<!--            @click="handleAdd"-->
-<!--          >-->
-<!--            新增-->
-<!--          </a-button>-->
+          <a-button
+            type="primary"
+            v-access:code="['rp:bitAccount:add']"
+            @click="handleAdd"
+          >
+            新增
+          </a-button>
           <a-button
             :disabled="!vxeCheckboxChecked(tableApi)"
             danger
             type="primary"
-            v-access:code="['rp:articleDetail:remove']"
+            v-access:code="['rp:bitAccount:remove']"
             @click="handleMultiDelete"
           >
             删除
           </a-button>
-<!--          <a-button-->
-<!--            v-access:code="['rp:articleDetail:add']"-->
-<!--            @click="showUploadDialog"-->
-<!--          >-->
-<!--            <template #icon><ImportOutlined /></template>-->
-<!--            导入-->
-<!--          </a-button>-->
+          <a-button
+            v-access:code="['rp:bitAccount:add']"
+            @click="showUploadDialog"
+          >
+            <template #icon><ImportOutlined /></template>
+            导入
+          </a-button>
           <Popconfirm
             title="确定要导出嘛？"
             ok-text="确定"
@@ -172,7 +172,7 @@ const handleExport = () => {
             @confirm="handleExport"
           >
             <a-button
-              v-access:code="['rp:articleDetail:export']"
+              v-access:code="['rp:bitAccount:export']"
               type="primary"
               color="red"
             >
@@ -184,15 +184,15 @@ const handleExport = () => {
       </template>
       <template #action="{ row }">
         <Space>
-<!--          <a-button-->
-<!--            size="small"-->
-<!--            type="link"-->
-<!--            v-access:code="['rp:articleDetail:edit']"-->
-<!--            @click="handleEdit(row)"-->
-<!--          >-->
-<!--            <template #icon><EditOutlined /></template>-->
-<!--            编辑-->
-<!--          </a-button>-->
+          <a-button
+            size="small"
+            type="link"
+            v-access:code="['rp:bitAccount:edit']"
+            @click="handleEdit(row)"
+          >
+            <template #icon><EditOutlined /></template>
+            编辑
+          </a-button>
           <Popconfirm
             :get-popup-container="getVxePopupContainer"
             placement="left"
@@ -202,7 +202,7 @@ const handleExport = () => {
             <a-button
               type="link"
               danger
-              v-access:code="['rp:articleDetail:remove']"
+              v-access:code="['rp:bitAccount:remove']"
               @click.stop=""
             >
               <template #icon><DeleteOutlined /></template>

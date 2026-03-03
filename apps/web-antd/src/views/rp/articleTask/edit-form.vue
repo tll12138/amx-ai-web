@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import {computed, ref, nextTick} from 'vue';
 
 import { useVbenDrawer } from '@vben/common-ui';
 import { DictEnum } from '@vben/constants';
@@ -25,6 +25,7 @@ interface StepParams {
   groupId?: any;
   accountIds: any[];
   search?: string;
+  deviceType: any;
 }
 const currentStep = ref(0);
 const platformOptions = ref(getDictOptions(DictEnum.RP_PLATFORMS));
@@ -33,6 +34,7 @@ const stepParams = ref<StepParams>({
   groupId: undefined,
   accountIds: [],
   search: '',
+  deviceType: undefined,
 });
 const groups = ref<any[]>([]);
 const loading = ref(false);
@@ -73,13 +75,100 @@ const [Drawer, drawerApi] = useVbenDrawer({
     const { id } = drawerApi.getData() as { id?: string };
     isUpdate.value = !!id;
 
-    // 只在第一次打开时初始化平台，避免在 step 切换时重复初始化
-    if (!stepParams.value.platform) {
-      stepParams.value.platform = platformOptions.value?.[0]?.value;
-    }
+    // 新增：标记是否已回填数据，避免重复执行
+    let isDataFilled = false;
 
-    await loadGroups();
-    drawerApi.drawerLoading(false);
+    try {
+      let detailData = null;
+      // 查看模式：获取任务详情
+      if (isUpdate.value) {
+        detailData = await ArticleTaskApi.getDetail(id);
+        console.log('加载任务详情成功:', detailData);
+      }
+
+      // 初始化平台（优先用详情里的平台，无则取第一个）
+      if (!stepParams.value.platform) {
+        stepParams.value.platform = platformOptions.value?.[0]?.value;
+        // 新增：抖音平台默认PC端
+        if (stepParams.value.platform === '抖音') {
+          stepParams.value.deviceType = '0';
+        }
+      }
+
+      // 加载当前平台的分组和账号数据
+      await loadGroups();
+
+      // 查看模式：填充表单数据（适配新的详情结构）
+      if (detailData) {
+        // 新增：回填终端类型（优先用详情值，无则默认PC）
+        stepParams.value.deviceType = detailData.deviceType || (stepParams.value.platform === '抖音' ? '0' : undefined);
+
+        // 1. 回填选中的账号ID（从detailVos提取accountId）
+        if (detailData.detailVos && Array.isArray(detailData.detailVos)) {
+          const accountIds = detailData.detailVos.map(item => item.accountId);
+          stepParams.value.accountIds = accountIds;
+
+          // 2. 回填选中的分组（根据账号ID匹配所属分组）
+          const accountDetails = selectedAccountDetails.value;
+          const groupIds = [...new Set(accountDetails.map(account => account.groupId))];
+          selectedGroupIds.value = groupIds;
+        }
+
+        // 3. 组装第二步表单数据（解析detailVos和extraInfo）
+        if (detailData.detailVos && Array.isArray(detailData.detailVos)) {
+          step2FormData.value = {
+            taskName: detailData.taskName || '',
+            contentGroups: detailData.detailVos.map((item, index) => {
+              // 解析extraInfo JSON字符串（容错处理）
+              let extraInfo = {};
+              try {
+                extraInfo = item.extraInfo ? JSON.parse(item.extraInfo) : {};
+              } catch (e) {
+                console.error(`解析第${index+1}条extraInfo失败:`, e);
+                extraInfo = {};
+              }
+
+              return {
+                mediaType: parseInt(item.type) || 0, // type: "0" -> 数字0
+                video: extraInfo.video || '',
+                picList: extraInfo.picList || [],
+                publishTime: extraInfo.publishTime || '',
+                title: item.title || '',
+                content: item.content || '',
+                selectedTags: extraInfo.tagList || [], // 标签列表
+                tagList: extraInfo.tagList || [],
+                selectedAccount: item.accountId || '', // 关联的账号ID
+                url: extraInfo.url || '',
+                taskId: item.taskId || 0,
+                publishStatus: item.publishStatus || 0,
+                ifControlEvaluation: item.ifControlEvaluation || 0,
+                controlEvaluationContent:  item.controlEvaluationContent || '',
+              };
+            })
+          };
+          // 关键修改：先等数据赋值，再切换到第二步（确保props传递给Step2）
+          await nextTick();
+          currentStep.value = 1;
+
+          // 兜底：props传递失败时，主动调用setFormData
+          setTimeout(() => {
+            if (!isDataFilled && step2.value && step2FormData.value) {
+              step2.value.setFormData(step2FormData.value);
+              isDataFilled = true;
+              console.log('父组件兜底调用setFormData（仅一次）:', step2FormData.value);
+            }
+          }, 100);
+
+          // 有内容时自动跳转到第二步（查看模式更友好）
+          currentStep.value = 1;
+        }
+      }
+    } catch (error) {
+      console.error('加载任务详情失败:', error);
+      message.error('加载任务详情失败，请稍后重试');
+    } finally {
+      drawerApi.drawerLoading(false);
+    }
   },
 });
 
@@ -109,7 +198,17 @@ function onPlatformChange(val: any) {
   stepParams.value.platform = val;
   stepParams.value.accountIds = [];
   groups.value = [];
-  selectedGroupIds.value = []; // 平台变化时也重置选中的分组
+  selectedGroupIds.value = [];
+  // 新增：清空第二步表单数据
+  step2FormData.value = null;
+  // 新增：重置步骤到第一步
+  currentStep.value = 0;
+  // 新增：抖音平台默认选中PC端，其他平台清空
+  if (val === '抖音') {
+    stepParams.value.deviceType = '0';
+  } else {
+    stepParams.value.deviceType = undefined;
+  }
   loadGroups();
 }
 
@@ -118,6 +217,11 @@ async function handleConfirm() {
     // 第一步：选择账号
     if (stepParams.value.accountIds.length === 0) {
       message.warning('请先选择账号');
+      return;
+    }
+    // 新增：抖音平台必须选择终端类型（兜底验证）
+    if (stepParams.value.platform === '抖音' && !stepParams.value.deviceType) {
+      message.warning('请选择终端类型');
       return;
     }
     currentStep.value += 1;
@@ -164,7 +268,9 @@ async function handleConfirm() {
             tagList: group.tagList, // 标签列表
             accountId: group.selectedAccount, // 选中的发布账号ID
             url: group.url, // 笔记链接
-            taskId: 0 // 任务ID暂未生成，默认0
+            taskId: 0, // 任务ID暂未生成，默认0
+            ifControlEvaluation: group.ifControlEvaluation, // 是否控制评估（0-否 1-是）
+            controlEvaluationContent: group.controlEvaluationContent // 控制评估内容
           }))
         },
         // 可选字段
@@ -198,17 +304,34 @@ function handleReturn() {
   console.log('当前选中的账号:', stepParams.value.accountIds);
   currentStep.value -= 1;
   // 返回上一步时不应该重置任何数据，保持原有选择状态
+  if (!isUpdate.value) {
+    step2FormData.value = null;
+    // 兜底：调用Step2组件的重置方法（需子组件配合暴露）
+    if (step2.value && typeof step2.value.resetForm === 'function') {
+      step2.value.resetForm();
+    }
+  }
 }
 
 async function handleCancel() {
   drawerApi.close();
-  stepParams.value.platform = undefined;
+  // 2. 彻底重置所有表单相关状态（新增/查看模式通用）
+  stepParams.value = {
+    platform: undefined,
+    groupId: undefined,
+    accountIds: [],
+    search: '',
+  };
   groups.value = [];
-  stepParams.value.groupId = undefined;
-  stepParams.value.search = '';
-  stepParams.value.accountIds = [];
-  selectedGroupIds.value = []; // 关闭时也重置选中的分组
+  selectedGroupIds.value = [];
+  step2FormData.value = null;
   currentStep.value = 0;
+  isUpdate.value = false;
+
+  // 3. 重置Step2组件内部表单（兜底）
+  if (step2.value && typeof step2.value.resetForm === 'function') {
+    step2.value.resetForm();
+  }
 }
 </script>
 
@@ -250,6 +373,17 @@ async function handleCancel() {
         </div>
       </div>
 
+      <!-- 新增：抖音平台的终端类型选择 -->
+      <div v-if="stepParams.platform === '抖音'" class="flex w-full max-w-[760px] items-center gap-4 mt-4">
+        <span class="w-20 text-left text-base font-medium text-gray-700">
+          终端类型
+        </span>
+              <a-radio-group v-model:value="stepParams.deviceType" class="flex-1">
+                <a-radio value='0'>PC端</a-radio>
+                <a-radio value='1'>手机端</a-radio>
+              </a-radio-group>
+      </div>
+
       <!-- 账号选择区域 -->
       <div>
         <div class="mb-3">
@@ -282,6 +416,8 @@ async function handleCancel() {
         :platform="stepParams.platform"
         ref="step2"
         :selected-accounts="selectedAccountDetails"
+        :default-task-name="step2FormData?.taskName"
+        :default-content-groups="step2FormData?.contentGroups"
         @update:form-data="handleStep2DataUpdate"
       />
     </div>
@@ -291,8 +427,20 @@ async function handleCancel() {
           <a-button v-if="currentStep > 0" @click="handleReturn">
             上一步
           </a-button>
-          <a-button type="primary" @click="handleConfirm">
+          <a-button
+            v-if="!isUpdate||currentStep === 0"
+            type="primary"
+            @click="handleConfirm"
+            :loading="loading"
+          >
             {{ currentStep === 0 ? '下一步' : '提交' }}
+          </a-button>
+          <a-button
+            v-else
+            type="primary"
+            disabled
+          >
+            仅查看，不可编辑
           </a-button>
         </a-space>
       </div>

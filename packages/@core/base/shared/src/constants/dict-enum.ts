@@ -25,6 +25,9 @@ export enum DictEnum {
   AI_REFERENCE_LATITUDE = 'ai_reference_latitude',
   AI_PROVIDER = 'ai_provider',
   AI_STYLE_TYPE = 'ai_style_type',
+  ARTICLE_TYPE = 'article_type',
+  ARTICLE_RELEASE_STATUS = 'article_release_status',
+  DEVICE_TYPE = 'device_type',
 
   // RP 转载相关
   RP_PLATFORMS = 'rp_platforms',

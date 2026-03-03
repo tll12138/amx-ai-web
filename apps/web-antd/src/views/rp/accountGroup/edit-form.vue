@@ -9,7 +9,8 @@ import { useVbenForm } from '#/adapter/form';
 import { AccountGroupApi } from '#/api/rp/accountGroup';
 
 import { AccountConfigApi } from '#/api/rp/accountConfig';
-import { ModalSchema, rpanoOptions } from './data';
+import {biteGroupOptions, ModalSchema, rpanoOptions} from './data';
+import { BitAccountApi } from '#/api/rp/bitAccount';
 
 const emit = defineEmits<{ reload: [] }>();
 
@@ -41,6 +42,26 @@ const loadAccountConfigList = async () => {
       console.error('【加载RPA账号列表】错误详情：', error.message, error.stack);
     }
     rpanoOptions.value = [];
+  }
+};
+// 🔥 新增：加载比特分组列表
+const loadBiteGroupList = async () => {
+  try {
+    const requestParams = { pageNum: 1, pageSize: 100 }; // 按需调整分页参数
+    const res = await BitAccountApi.getList(requestParams);
+    // 🔥 注意：根据BitAccountApi实际返回的字段调整label/value映射
+    // 示例：假设接口返回 rows 包含 name（分组名称）和 id（分组ID）
+    const options = res.rows?.map(item => ({
+      label: item.name || item.accountName, // 替换为实际的分组名称字段
+      value: item.id || item.accountCode,     // 替换为实际的分组ID字段
+    })) || [];
+    biteGroupOptions.value = options;
+  } catch (error) {
+    console.error('【加载比特分组列表】失败：', error);
+    if (error instanceof Error) {
+      console.error('【加载比特分组列表】错误详情：', error.message, error.stack);
+    }
+    biteGroupOptions.value = [];
   }
 };
 
@@ -78,6 +99,7 @@ const [Modal, modalApi] = useVbenModal({
     const { id, platform } = modalApi.getData() as { id?: string; platform?: string };
     // 2. 加载RPA账号下拉选项（直接更新 Ref）
     await loadAccountConfigList();
+    await loadBiteGroupList();
     // 3. 编辑场景：回显数据
     isUpdate.value = !!id;
     if (isUpdate.value && id) {

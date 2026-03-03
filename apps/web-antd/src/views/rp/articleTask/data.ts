@@ -1,5 +1,8 @@
 import type { FormSchemaGetter } from '#/adapter/form';
 import type { VxeGridProps } from '#/adapter/vxe-table';
+import { DictEnum } from '@vben/constants';
+import { getDictOptions } from '#/utils/dict';
+import { renderDictTag } from '#/utils/render';
 
 export const querySchema: FormSchemaGetter = () => [
   {
@@ -16,8 +19,19 @@ export const querySchema: FormSchemaGetter = () => [
     component: 'Select',
     componentProps: {
       placeholder: '请选择任务状态',
-      options: [],
+      options: getDictOptions(DictEnum.ARTICLE_RELEASE_STATUS),
     },
+    colProps: { span: 8 },
+  },
+  {
+    label: '终端类型',
+    fieldName: 'deviceType',
+    component: 'Select',
+    componentProps: {
+      placeholder: '请选择终端类型',
+      options: getDictOptions(DictEnum.DEVICE_TYPE),
+    },
+    colProps: { span: 8 },
   },
 ];
 
@@ -38,6 +52,28 @@ export const columns: VxeGridProps['columns'] = [
   {
     title: '任务状态',
     field: 'status',
+    slots: {
+      default: ({ row }) => {
+        const { status } = row;
+        return renderDictTag(
+          status as string,
+          getDictOptions(DictEnum.ARTICLE_RELEASE_STATUS),
+        );
+      },
+    },
+  },
+  {
+    title: '终端类型',
+    field: 'deviceType',
+    slots: {
+      default: ({ row }) => {
+        const { deviceType } = row;
+        return renderDictTag(
+          deviceType as string,
+          getDictOptions(DictEnum.DEVICE_TYPE),
+        );
+      },
+    },
   },
   {
     title: '创建时间',
@@ -46,7 +82,7 @@ export const columns: VxeGridProps['columns'] = [
   {
     field: 'action',
     fixed: 'right',
-    slots: { default: 'action' },
+    slots: { default: 'action' }, // action插槽是业务自定义（已存在），保留
     title: '操作',
     width: 180,
   },
@@ -88,11 +124,29 @@ export const DrawerSchema: FormSchemaGetter = () => [
     },
   },
   {
-    label: '任务状态',
-    fieldName: 'status',
-    component: 'RadioGroup',
-    componentProps: {
-      options: [],
+    title: '任务状态',
+    field: 'status',
+    slots: {
+      default: ({ row }) => {
+        const { status } = row;
+        return renderDictTag(
+          status as string,
+          getDictOptions(DictEnum.ARTICLE_RELEASE_STATUS),
+        );
+      },
+    },
+  },
+  {
+    title: '终端类型',
+    field: 'deviceType',
+    slots: {
+      default: ({ row }) => {
+        const { deviceType } = row;
+        return renderDictTag(
+          deviceType as string,
+          getDictOptions(DictEnum.DEVICE_TYPE),
+        );
+      },
     },
   },
 ];
