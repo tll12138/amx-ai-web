@@ -17,6 +17,7 @@ export enum DictEnum {
   WF_TASK_STATUS = 'wf_task_status', // 任务状态
   SYS_ENABLE = 'sys_enable', // 是否
   IS_USED = 'is_used',
+  YES_OR_NO = 'yes_or_no',
 
   // 商品类型
   PRODUCT_TYPE = 'product_type', // 商品类型

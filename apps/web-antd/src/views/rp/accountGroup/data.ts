@@ -15,12 +15,11 @@ export const biteGroupOptions = ref<Array<{ label: string; value: string }>>([])
 // --------------------------
 const rpaFormSchema = z.object({
   platform: z.string().min(1, '请选择分组所属平台'),
-  isBite: z.boolean().optional(),
-  biteGroup: z.string().optional(),
+  isBite: z.number().optional(),
   rpaNo: z.string().min(1, '请选择关联的RPA账号'), // 始终必填
 }).superRefine((data, ctx) => {
   // 1. 如果是抖音平台，isBite 必须选（不能是 undefined）
-  if (data.platform === '抖音' && typeof data.isBite !== 'boolean') {
+  if (data.platform === '抖音' && typeof data.isBite !== 'number') {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: '请选择是否比特',
@@ -114,26 +113,11 @@ export const ModalSchema: FormSchemaGetter = () => [
     },
     componentProps: {
       options: [
-        { label: '是', value: true },
-        { label: '否', value: false },
+        { label: '是', value: 1 },
+        { label: '否', value: 0 },
       ],
       // 注意：不设 defaultValue，强制用户必选
     },
-  },
-  // 2. 比特分组：仅抖音 + 是比特 时显示
-  {
-    label: '比特分组',
-    fieldName: 'biteGroup',
-    rules: 'required',
-    component: 'Select',
-    dependencies: {
-      show: (values) => values?.platform === '抖音' && values?.isBite === true,
-      triggerFields: ['platform', 'isBite'],
-    },
-    componentProps: () => ({
-      placeholder: '请选择比特分组',
-      options: biteGroupOptions.value || [],
-    }),
   },
   // 3. 关联RPA账号：始终显示，始终必填
   {

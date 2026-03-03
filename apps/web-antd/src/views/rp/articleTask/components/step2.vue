@@ -10,10 +10,10 @@ import { Modal, Space } from 'ant-design-vue';
 import { CommonApi } from '#/api/xhs/common';
 import { ImageUpload, VideoUpload } from '#/components/upload';
 import { getDictOptions } from '#/utils/dict';
-import { GeneratedContentApi } from '#/api/ai/generatedContent'; // 引入AI内容API
-import { useVbenVxeGrid, type VxeGridProps } from '#/adapter/vxe-table'; // 引入表格适配器
+import { GeneratedContentApi } from '#/api/ai/generatedContent';
+import { useVbenVxeGrid, type VxeGridProps } from '#/adapter/vxe-table';
 
-// 定义接口类型
+// ========================== 类型定义（集中管理）==========================
 interface Account {
   id: string;
   name: string;
@@ -23,7 +23,7 @@ interface Account {
 interface ContentGroup {
   mediaType: 0 | 1;
   video: string | string[];
-  picList: any[]; // 允许接收图片URL列表
+  picList: any[];
   publishTime: string;
   title: string;
   content: string;
@@ -33,6 +33,8 @@ interface ContentGroup {
   url: string;
   ifControlEvaluation: 0 | 1;
   controlEvaluationContent: string;
+  taskId?: number;
+  publishStatus?: number;
 }
 
 interface CreateForm {
@@ -40,7 +42,6 @@ interface CreateForm {
   contentGroups: ContentGroup[];
 }
 
-// Props定义
 interface Props {
   platform: string;
   selectedAccounts: Account[];
@@ -48,6 +49,7 @@ interface Props {
   defaultContentGroups?: ContentGroup[];
 }
 
+// ========================== Props & Emits ==========================
 const props = withDefaults(defineProps<Props>(), {
   platform: '',
   selectedAccounts: () => [],
@@ -55,77 +57,404 @@ const props = withDefaults(defineProps<Props>(), {
   defaultContentGroups: () => [],
 });
 
-// Emits定义
 const emit = defineEmits<{
   accountChange: [accountId: string];
   'update:formData': [data: CreateForm];
   validate: [valid: boolean];
 }>();
 
-// 响应式数据
+// ========================== 响应式数据（按功能分类）=========================
+// 核心表单数据
 const formState = reactive<CreateForm>({
   taskName: '',
   contentGroups: [],
 });
 
-// Loading states for parsing
-const parsingLoading = ref<boolean[]>([]);
+// 加载状态
+const loadingStates = reactive({
+  parsing: [] as boolean[], // 解析链接加载
+  optimize: [] as boolean[], // 文案优化加载
+  selectContentGrid: false, // AI内容选择表格加载
+});
 
-// 用于存储每个内容组的视频链接输入
-const videoUrlInputs = ref<string[]>([]);
+// 辅助输入/存储
+const assistState = reactive({
+  videoUrlInputs: [] as string[], // 视频链接输入框
+  originalContentMap: {} as Record<number, string>, // 原始文案映射
+});
 
-// 文案优化相关状态
-const optimizeLoading = ref<boolean[]>([]); // 每个内容组的优化加载状态
-const originalContentMap = ref<Record<number, string>>({}); // 存储每个内容组的原始正文（用于回退）
+// 弹窗相关
+const modalState = reactive({
+  selectContentVisible: false,
+  currentGroupIndex: -1,
+});
 
-// AI内容选择弹窗相关
-const selectContentModalVisible = ref(false); // 选择弹窗是否显示
-const currentGroupIndex = ref(-1); // 当前操作的内容组索引
-const selectContentGridLoading = ref(false); // 选择列表加载状态
+// 初始化标记（避免重复执行）
+const initFlags = reactive({
+  isInitialized: false,
+  isFormDataSet: false,
+});
 
-// 标记是否已初始化，避免重复覆盖
-const isInitialized = ref(false);
-// 标记是否已设置表单数据
-const isFormDataSet = ref(false);
+// ========================== 计算属性 ==========================
+const selectedAccountObjList = computed<Account[]>(() => props.selectedAccounts || []);
+const selectedAccountList = computed<string[]>(() => selectedAccountObjList.value.map(acc => acc.id));
 
-// 解析keywordAnalysis为干净的标签列表（处理#、逗号、顿号、空格分隔）
+// 平台标签数量限制
+const maxTagCount = computed(() => {
+  const platformLimitMap = {
+    小红书: 10,
+    抖音: 5,
+  };
+  return platformLimitMap[props.platform as keyof typeof platformLimitMap];
+});
+
+// ========================== 通用工具方法（抽离重复逻辑）=========================
+/**
+ * 初始化内容组辅助数组（解析加载、视频输入、优化加载）
+ * @param length 内容组数量
+ */
+const initContentGroupAssistArrays = (length: number) => {
+  loadingStates.parsing = Array.from({ length }, () => false);
+  loadingStates.optimize = Array.from({ length }, () => false);
+  assistState.videoUrlInputs = Array.from({ length }, () => '');
+};
+
+/**
+ * 解析关键词为标签列表（去重、清理分隔符）
+ * @param keywordAnalysis 原始关键词数据
+ * @returns 标准化标签列表
+ */
 const parseKeywordAnalysis = (keywordAnalysis: any): string[] => {
   if (!keywordAnalysis) return [];
 
-  // 统一转成数组处理（兼容字符串/数组格式）
   const keywordList = Array.isArray(keywordAnalysis) ? keywordAnalysis : [keywordAnalysis];
-
-  // 使用Set自动去重
   const tagSet = new Set<string>();
 
-  // 遍历每个关键词字符串，解析标签
   keywordList.forEach(keywordStr => {
     if (typeof keywordStr !== 'string' || !keywordStr.trim()) return;
 
-    // 步骤1：移除所有#号
-    let cleanStr = keywordStr.replace(/#/g, '').trim();
-    // 步骤2：按 逗号(中英文)、顿号、空格 分割成单个标签
-    const tags = cleanStr.split(/[,，、\s]+/);
-    // 步骤3：过滤空标签并去重
-    tags.forEach(tag => {
-      const trimTag = tag.trim();
-      if (trimTag) {
-        tagSet.add(trimTag);
-      }
-    });
+    // 清理#号 + 按多分隔符拆分 + 去重
+    keywordStr.replace(/#/g, '').trim()
+      .split(/[,，、\s]+/)
+      .forEach(tag => {
+        const trimTag = tag.trim();
+        if (trimTag) tagSet.add(trimTag);
+      });
   });
 
-  // 转数组返回（保证顺序且去重）
   return Array.from(tagSet);
 };
 
-// 选择列表表格配置
+/**
+ * 生成默认任务名称
+ */
+const generateTaskName = (): string => {
+  if (!props.platform) return '';
+
+  const platformName = getDictOptions(DictEnum.RP_PLATFORMS).find(opt => opt.value === props.platform)?.label || props.platform;
+  const timeStr = new Date().toISOString().replaceAll(/[-T:Z.]/g, '').slice(0, 14);
+
+  return `${platformName}-发布任务_${timeStr}`;
+};
+
+/**
+ * 创建空的内容组
+ * @param accountId 可选-默认选中的账号ID
+ * @returns 空内容组
+ */
+const createEmptyContentGroup = (accountId = ''): ContentGroup => ({
+  mediaType: 1, // 默认视频类型
+  video: '',
+  picList: [],
+  publishTime: '',
+  title: '',
+  content: '',
+  selectedTags: [],
+  tagList: [],
+  selectedAccount: accountId,
+  url: '',
+  ifControlEvaluation: 0,
+  controlEvaluationContent: '',
+});
+
+// ========================== 内容组操作方法 ==========================
+/**
+ * 添加内容组
+ */
+const addContentGroup = (): void => {
+  formState.contentGroups.push(createEmptyContentGroup());
+  initContentGroupAssistArrays(formState.contentGroups.length);
+};
+
+/**
+ * 移除内容组
+ * @param index 要移除的索引
+ */
+const removeContentGroup = (index: number): void => {
+  if (formState.contentGroups.length <= 1) return;
+
+  // 移除内容组
+  formState.contentGroups.splice(index, 1);
+  // 同步更新辅助数组
+  loadingStates.parsing.splice(index, 1);
+  loadingStates.optimize.splice(index, 1);
+  assistState.videoUrlInputs.splice(index, 1);
+
+  // 重新映射原始文案（修正索引）
+  const newOriginalContentMap: Record<number, string> = {};
+  Object.entries(assistState.originalContentMap).forEach(([key, value]) => {
+    const numKey = Number(key);
+    if (numKey < index) newOriginalContentMap[numKey] = value;
+    if (numKey > index) newOriginalContentMap[numKey - 1] = value;
+  });
+  assistState.originalContentMap = newOriginalContentMap;
+};
+
+/**
+ * 初始化默认内容组（统一入口）
+ */
+const initDefaultContentGroups = () => {
+  // 优先使用父组件传入的默认值
+  if (props.defaultContentGroups?.length) {
+    formState.contentGroups = props.defaultContentGroups.map(group => ({
+      mediaType: group.mediaType || 0,
+      video: group.video || '',
+      picList: group.picList || [],
+      publishTime: group.publishTime || '',
+      title: group.title || '',
+      content: group.content || '',
+      selectedTags: group.selectedTags || [],
+      tagList: group.tagList || [],
+      selectedAccount: group.selectedAccount || '',
+      url: group.url || '',
+      ifControlEvaluation: group.ifControlEvaluation || 0,
+      controlEvaluationContent: group.controlEvaluationContent || '',
+      taskId: group.taskId || 0,
+      publishStatus: group.publishStatus || 0,
+    }));
+    initFlags.isFormDataSet = true;
+  } else {
+    // 无默认值时，为每个选中账号创建内容组
+    formState.contentGroups = props.selectedAccounts.map(account => createEmptyContentGroup(account.id));
+  }
+
+  // 初始化辅助数组
+  initContentGroupAssistArrays(formState.contentGroups.length);
+};
+
+// ========================== 文案优化/回退 ==========================
+/**
+ * 优化文案
+ * @param groupIndex 内容组索引
+ */
+const optimizeContent = async (groupIndex: number) => {
+  const group = formState.contentGroups[groupIndex];
+  if (!group?.content.trim()) {
+    message.warn('请输入需要优化的文案内容');
+    return;
+  }
+
+  // 首次优化时保存原始内容
+  if (!assistState.originalContentMap[groupIndex]) {
+    assistState.originalContentMap[groupIndex] = group.content;
+  }
+
+  try {
+    loadingStates.optimize[groupIndex] = true;
+    const res = await CommonApi.generateContent({ content: group.content.trim() });
+
+    if (res) {
+      group.content = res.content || res.title || '';
+      message.success('文案优化成功');
+    } else {
+      message.warn('未获取到优化后的文案');
+    }
+  } catch (error) {
+    console.error('文案优化失败:', error);
+    message.error('文案优化失败，请稍后重试');
+  } finally {
+    loadingStates.optimize[groupIndex] = false;
+  }
+};
+
+/**
+ * 回退文案到优化前
+ * @param groupIndex 内容组索引
+ */
+const revertContent = (groupIndex: number) => {
+  const originalContent = assistState.originalContentMap[groupIndex];
+  if (!originalContent) {
+    message.warn('暂无可回退的原始文案');
+    return;
+  }
+
+  formState.contentGroups[groupIndex].content = originalContent;
+  message.success('文案已回退到优化前版本');
+};
+
+// ========================== 链接解析/媒体处理 ==========================
+/**
+ * 切换媒体类型
+ * @param value 媒体类型 0-图片 1-视频
+ * @param groupIndex 内容组索引
+ */
+const handleChangeMediaType = (value: 0 | 1, groupIndex: number): void => {
+  formState.contentGroups[groupIndex].mediaType = value;
+};
+
+/**
+ * 解析小红书链接
+ * @param groupIndex 内容组索引
+ */
+const HandleXHSUrl = async (groupIndex: number): Promise<void> => {
+  const group = formState.contentGroups[groupIndex];
+  if (!group?.url) {
+    message.warn('请输入待解析的链接');
+    return;
+  }
+
+  try {
+    loadingStates.parsing[groupIndex] = true;
+    const response = await CommonApi.handleXhsUrl({ url: group.url });
+    if (!response) return;
+
+    // 填充基础信息
+    group.title = response.title || '';
+    group.content = response.desc || '';
+
+    // 处理媒体内容
+    if (response.videoUrl) {
+      group.mediaType = 1;
+      group.video = response.videoUrl;
+      group.picList = [];
+    } else if (response.imageList?.length) {
+      group.mediaType = 0;
+      group.picList = response.imageList;
+      group.video = '';
+    }
+
+    // 处理标签（按平台限制）
+    if (response.tags && Array.isArray(response.tags)) {
+      group.tagList = response.tags;
+      const limit = maxTagCount.value ?? 5; // 无限制时默认5个
+      group.selectedTags = response.tags.slice(0, limit);
+    }
+
+    message.success('链接解析成功');
+  } catch (error) {
+    console.error('解析失败:', error);
+    message.error('链接解析失败，请检查链接有效性');
+  } finally {
+    loadingStates.parsing[groupIndex] = false;
+  }
+};
+
+/**
+ * 应用视频链接
+ * @param groupIndex 内容组索引
+ */
+const applyVideoUrl = (groupIndex: number) => {
+  const url = assistState.videoUrlInputs[groupIndex];
+  if (!url || (!url.startsWith('http') && !url.startsWith('blob:'))) {
+    message.warn('请输入有效的视频链接');
+    return;
+  }
+
+  formState.contentGroups[groupIndex].video = url;
+};
+
+// ========================== 标签/账号验证 ==========================
+/**
+ * 检查账号是否已被使用
+ * @param accountId 账号ID
+ * @param excludeGroupIndex 排除的索引（当前编辑的内容组）
+ * @returns 是否已使用
+ */
+const isAccountUsed = (accountId: string, excludeGroupIndex: number): boolean => {
+  return formState.contentGroups.some(
+    (group, index) => index !== excludeGroupIndex && group.selectedAccount === accountId
+  );
+};
+
+/**
+ * 标签变化处理（限制数量）
+ * @param newTags 新标签列表
+ * @param groupIndex 内容组索引
+ */
+const handleTagsChange = (newTags: string[], groupIndex: number) => {
+  const limit = maxTagCount.value;
+  if (limit === undefined || newTags.length <= limit) {
+    formState.contentGroups[groupIndex].selectedTags = newTags;
+    return;
+  }
+
+  // 超出限制时截断并提示
+  formState.contentGroups[groupIndex].selectedTags = newTags.slice(0, limit);
+  message.warn(`最多只能选择 ${limit} 个标签`);
+};
+
+// ========================== 表单验证 ==========================
+/**
+ * 验证单个内容组
+ * @param group 内容组
+ * @param index 索引（用于提示）
+ * @returns 是否验证通过
+ */
+const validateContentGroup = (group: ContentGroup, index: number): boolean => {
+  if (!group.selectedAccount) {
+    message.warn(`内容组 ${index + 1} 请选择分发账号`);
+    return false;
+  }
+
+  if (!group.content) {
+    message.warn(`内容组 ${index + 1} 请输入正文内容`);
+    return false;
+  }
+
+  // 媒体验证
+  if (group.mediaType === 0 && group.picList.length === 0) {
+    message.warn(`内容组 ${index + 1} 请上传图片`);
+    return false;
+  }
+  if (group.mediaType === 1 && !group.video) {
+    message.warn(`内容组 ${index + 1} 请上传视频`);
+    return false;
+  }
+
+  return true;
+};
+
+/**
+ * 整体表单验证
+ * @returns 是否验证通过
+ */
+const validate = async (): Promise<boolean> => {
+  try {
+    // 基础验证
+    if (!formState.taskName) {
+      message.warn('请输入任务名称');
+      return false;
+    }
+
+    // 验证所有内容组
+    for (let i = 0; i < formState.contentGroups.length; i++) {
+      const group = formState.contentGroups[i];
+      if (!group || !validateContentGroup(group, i)) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch (error) {
+    console.error('表单验证失败:', error);
+    return false;
+  }
+};
+
+// ========================== AI内容选择 ==========================
+// 表格配置
 const selectContentGridOptions: VxeGridProps = {
-  checkboxConfig: {
-    highlight: true,
-    reserve: true,
-    trigger: 'cell',
-  },
+  checkboxConfig: { highlight: true, reserve: true, trigger: 'cell' },
   columns: [
     { type: 'checkbox', width: 60 },
     { title: '生成时间', field: 'generateTime', width: 200 },
@@ -139,18 +468,17 @@ const selectContentGridOptions: VxeGridProps = {
   proxyConfig: {
     ajax: {
       query: async ({ page }) => {
-        selectContentGridLoading.value = true;
+        loadingStates.selectContentGrid = true;
         try {
-          const res = await GeneratedContentApi.getList({
+          return await GeneratedContentApi.getList({
             pageNum: page.currentPage,
             pageSize: page.pageSize,
             orderByColumn: 'generateTime',
             isAsc: 'desc',
             isUsed: '0'
           });
-          return res;
         } finally {
-          selectContentGridLoading.value = false;
+          loadingStates.selectContentGrid = false;
         }
       },
     },
@@ -159,354 +487,24 @@ const selectContentGridOptions: VxeGridProps = {
   toolbarConfig: { refresh: true },
 };
 
-// 初始化选择列表表格
+// 初始化表格
 const [SelectContentTable, selectContentTableApi] = useVbenVxeGrid({
   gridOptions: selectContentGridOptions,
 });
 
-// 计算属性
-const selectedAccountObjList = computed<Account[]>(() => {
-  return props.selectedAccounts || [];
-});
-
-const selectedAccountList = computed<string[]>(() => {
-  return selectedAccountObjList.value.map((acc) => acc.id);
-});
-
-const maxTagCount = computed(() => {
-  // 平台标识符: 小红书，抖音
-  if (props.platform === '小红书') {
-    return 10;
-  }
-  if (props.platform === '抖音') {
-    return 5;
-  }
-  return undefined; // 其他平台无限制
-});
-
-// 方法定义
-const generateTaskName = (): string => {
-  if (!props.platform) {
-    return '';
-  }
-
-  const platformOptions = getDictOptions(DictEnum.RP_PLATFORMS);
-  const platformName =
-    platformOptions.find((opt) => opt.value === props.platform)?.label ||
-    props.platform;
-
-  return `${platformName}-发布任务_${new Date()
-    .toISOString()
-    .replaceAll(/[-T:Z.]/g, '')
-    .slice(0, 14)}`;
-};
-
-const addContentGroup = (): void => {
-  const newGroup: ContentGroup = {
-    mediaType: 0,
-    video: '',
-    picList: [],
-    publishTime: '',
-    title: '',
-    content: '',
-    selectedTags: [],
-    tagList: [],
-    selectedAccount: '',
-    url: '',
-    ifControlEvaluation: 0,
-    controlEvaluationContent: '',
-  };
-
-  formState.contentGroups.push(newGroup);
-  parsingLoading.value.push(false);
-  videoUrlInputs.value.push('');
-  optimizeLoading.value.push(false); // 初始化优化加载状态
-};
-
-const removeContentGroup = (index: number): void => {
-  if (formState.contentGroups.length > 1) {
-    formState.contentGroups.splice(index, 1);
-    // Remove the corresponding loading state
-    parsingLoading.value.splice(index, 1);
-    videoUrlInputs.value.splice(index, 1);
-    optimizeLoading.value.splice(index, 1); // 移除对应优化加载状态
-
-    // 清理原始内容映射并重新索引
-    delete originalContentMap.value[index];
-    const newMap: Record<number, string> = {};
-    Object.keys(originalContentMap.value).forEach(key => {
-      const numKey = Number(key);
-      if (numKey > index) {
-        newMap[numKey - 1] = originalContentMap.value[numKey];
-      } else if (numKey < index) {
-        newMap[numKey] = originalContentMap.value[numKey];
-      }
-    });
-    originalContentMap.value = newMap;
-  }
-};
-
-// 文案优化方法
-const optimizeContent = async (groupIndex: number) => {
-  const group = formState.contentGroups[groupIndex];
-  console.log('optimizeContent', group.content);
-  if (!group || !group.content.trim() || '') {
-    message.warn('请输入需要优化的文案内容');
-    return;
-  }
-
-  // 保存原始内容（仅第一次优化时保存）
-  if (!originalContentMap.value[groupIndex]) {
-    originalContentMap.value[groupIndex] = group.content;
-  }
-
-  try {
-    optimizeLoading.value[groupIndex] = true;
-    // 调用AI文案优化API（需根据实际接口调整参数）
-    const res = await CommonApi.generateContent({
-      content: group.content.trim(),
-    });
-
-    if (res) {
-      group.content = res.content || res.title || '';
-      message.success('文案优化成功');
-    } else {
-      message.warn('未获取到优化后的文案');
-    }
-  } catch (error) {
-    console.error('文案优化失败:', error);
-    message.error('文案优化失败，请稍后重试');
-  } finally {
-    optimizeLoading.value[groupIndex] = false;
-  }
-};
-
-// 文案回退方法
-const revertContent = (groupIndex: number) => {
-  const group = formState.contentGroups[groupIndex];
-  const originalContent = originalContentMap.value[groupIndex];
-
-  if (originalContent) {
-    group.content = originalContent;
-    // 可选：回退后清空该索引的原始内容（下次优化重新保存）
-    // delete originalContentMap.value[groupIndex];
-    message.success('文案已回退到优化前版本');
-  } else {
-    message.warn('暂无可回退的原始文案');
-  }
-};
-
-const handleChangeMediaType = (value: 0 | 1, groupIndex: number): void => {
-  const group = formState.contentGroups[groupIndex];
-  console.log('切换媒体类型:', value, '内容组索引:', groupIndex);
-  if (group) {
-    group.mediaType = value;
-  }
-};
-
-const isAccountUsed = (
-  accountId: string,
-  excludeGroupIndex: number,
-): boolean => {
-  return formState.contentGroups.some(
-    (group, index) =>
-      index !== excludeGroupIndex && group.selectedAccount === accountId,
-  );
-};
-
-const HandleXHSUrl = async (groupIndex: number): Promise<void> => {
-  const group = formState.contentGroups[groupIndex];
-  if (!group || !group.url) {
-    console.warn('请输入待解析的链接');
-    return;
-  }
-
-  try {
-    // Set loading state
-    parsingLoading.value[groupIndex] = true;
-
-    console.log('解析链接:', group.url, '内容组索引:', groupIndex);
-    // 这里可以调用相应的API进行内容解析
-    const response = await CommonApi.handleXhsUrl({ url: group.url });
-
-    // 模拟解析结果填充
-    if (response) {
-      // 优先填充标题和内容
-      group.title = response.title || '';
-      group.content = response.desc || '';
-
-      // 处理媒体内容
-      if (response.videoUrl) {
-        group.mediaType = 1; // 切换到视频
-        group.video = response.videoUrl; // VideoUpload需要数组
-        group.picList = []; // 清空图片
-        console.log('视频解析结果:', response.videoUrl);
-      } else if (response.imageList && response.imageList.length > 0) {
-        group.mediaType = 0; // 切换到图片
-        group.picList = response.imageList;
-        group.video = ''; // 清空视频
-        console.log('图片解析结果:', response.imageList);
-      }
-      console.log(group);
-
-      // 处理标签
-      if (response.tags && Array.isArray(response.tags)) {
-        // 将返回的所有标签作为下拉选项
-        group.tagList = response.tags;
-        // 默认选中标签，数量根据平台限制
-        const limit = maxTagCount.value;
-        if (limit === undefined) {
-          // 对于没有特定限制的平台，默认选中5个
-          group.selectedTags = response.tags.slice(0, 5);
-        } else {
-          group.selectedTags = response.tags.slice(0, limit);
-        }
-      }
-    }
-
-    console.log('解析完成');
-  } catch (error) {
-    console.error('解析失败:', error);
-  } finally {
-    // Reset loading state
-    parsingLoading.value[groupIndex] = false;
-  }
-};
-
-const applyVideoUrl = (groupIndex: number) => {
-  const group = formState.contentGroups[groupIndex];
-  const url = videoUrlInputs.value[groupIndex];
-  if (group && url && (url.startsWith('http') || url.startsWith('blob:'))) {
-    group.video = url;
-  } else {
-    message.warn('请输入有效的视频链接');
-  }
-};
-
-const handleTagsChange = (newTags: string[], groupIndex: number) => {
-  const limit = maxTagCount.value;
-  if (limit !== undefined && newTags.length > limit) {
-    const group = formState.contentGroups[groupIndex];
-    // 截断数组，并发出警告
-    group.selectedTags = newTags.slice(0, limit);
-    message.warn(`最多只能选择 ${limit} 个标签`);
-  }
-};
-
-// 表单验证
-const validate = async (): Promise<boolean> => {
-  try {
-    // 基础验证
-    if (!formState.taskName) {
-      console.warn('请输入任务名称');
-      return false;
-    }
-
-    // 验证内容组
-    for (let i = 0; i < formState.contentGroups.length; i++) {
-      const group = formState.contentGroups[i];
-      if (!group) {
-        return false;
-      }
-
-      if (!group.selectedAccount) {
-        message.warn(`内容组 ${i + 1} 请选择分发账号`);
-        return false;
-      }
-
-      if (!group.content) {
-        message.warn(`内容组 ${i + 1} 请输入正文内容`);
-        return false;
-      }
-
-      // 验证媒体文件
-      if (group.mediaType === 0 && group.picList.length === 0) {
-        message.warn(`内容组 ${i + 1} 请上传图片`);
-        return false;
-      }
-
-      if (group.mediaType === 1 && group.video.length === 0) {
-        message.warn(`内容组 ${i + 1} 请上传视频`);
-        return false;
-      }
-    }
-
-    return true;
-  } catch (error) {
-    console.error('表单验证失败:', error);
-    return false;
-  }
-};
-
-function initializeContentGroups() {
-  const selectedAccounts = props.selectedAccounts;
-  const contentGroups = [] as ContentGroup[];
-
-  // 为每个选中的账号创建一个内容组
-  selectedAccounts.forEach((account, _) => {
-    contentGroups.push({
-      mediaType: 1, // 默认视频类型
-      video: '',
-      picList: [],
-      publishTime: '',
-      title: '',
-      content: '',
-      selectedTags: [],
-      tagList: [],
-      selectedAccount: account.id,
-      url: '',
-      controlEvaluationContent: '',
-      ifControlEvaluation: 0,
-    });
-  });
-
-  // 更新内容组列表
-  formState.contentGroups = contentGroups;
-
-  // 同步初始化辅助数组
-  parsingLoading.value = Array.from({ length: contentGroups.length }, () => false);
-  videoUrlInputs.value = Array.from({ length: contentGroups.length }, () => '');
-  optimizeLoading.value = Array.from({ length: contentGroups.length }, () => false); // 新增
-}
-
-// 初始化默认内容组（从props获取）
-function initDefaultContentGroups() {
-  // 有父组件传递的初始数据 → 不执行默认初始化
-  if (props.defaultContentGroups && props.defaultContentGroups.length > 0) return;
-
-  const selectedAccounts = props.selectedAccounts;
-  const contentGroups = [] as ContentGroup[];
-  selectedAccounts.forEach((account) => {
-    contentGroups.push({
-      mediaType: 1,
-      video: '',
-      picList: [],
-      publishTime: '',
-      title: '',
-      content: '',
-      selectedTags: [],
-      tagList: [],
-      selectedAccount: account.id,
-      url: '',
-      controlEvaluationContent: '',
-      ifControlEvaluation: 0,
-    });
-  });
-  formState.contentGroups = contentGroups;
-  parsingLoading.value = Array.from({ length: contentGroups.length }, () => false);
-  videoUrlInputs.value = Array.from({ length: contentGroups.length }, () => '');
-  optimizeLoading.value = Array.from({ length: contentGroups.length }, () => false); // 新增
-}
-
-// 打开AI内容选择弹窗
+/**
+ * 打开AI内容选择弹窗
+ * @param index 内容组索引
+ */
 const openSelectContentModal = (index: number) => {
-  currentGroupIndex.value = index;
-  selectContentModalVisible.value = true;
-  // 刷新表格数据
+  modalState.currentGroupIndex = index;
+  modalState.selectContentVisible = true;
   selectContentTableApi.reload();
 };
 
-// 确认选择AI内容并填充
+/**
+ * 确认选择AI内容并填充
+ */
 const handleSelectContentConfirm = async () => {
   const selectedRows = selectContentTableApi.grid.getCheckboxRecords();
   if (selectedRows.length === 0) {
@@ -514,135 +512,105 @@ const handleSelectContentConfirm = async () => {
     return;
   }
 
-  const selectedRow = selectedRows[0]; // 只取第一条
-  const targetGroup = formState.contentGroups[currentGroupIndex.value];
+  const targetGroup = formState.contentGroups[modalState.currentGroupIndex];
+  const selectedRow = selectedRows[0]; // 仅取第一条
 
   try {
     // 填充基础字段
     targetGroup.title = selectedRow.parsedTitle || '';
     targetGroup.content = selectedRow.parsedParagraphs || '';
 
-    // 解析关键词为干净的标签列表
+    // 解析标签并按平台限制选择
     const tagList = parseKeywordAnalysis(selectedRow.keywordAnalysis);
     targetGroup.tagList = tagList;
-
-    // 根据平台限制选择默认标签数量
-    const limit = maxTagCount.value;
-    if (limit !== undefined) {
-      // 按平台限制截取（小红书10个，抖音5个）
-      targetGroup.selectedTags = tagList.slice(0, limit);
-    } else {
-      // 无限制时默认选前5个
-      targetGroup.selectedTags = tagList.slice(0, 5);
-    }
+    const limit = maxTagCount.value ?? 5;
+    targetGroup.selectedTags = tagList.slice(0, limit);
 
     message.success('AI生成内容填充成功');
-    selectContentModalVisible.value = false;
+    modalState.selectContentVisible = false;
   } catch (e) {
     console.error('解析AI内容失败:', e);
     message.error('解析AI内容失败，请检查数据格式');
   }
 };
 
-// 监听数据变化
+// ========================== 监听逻辑 ==========================
+// 表单数据变化时通知父组件
 watch(
   () => formState,
-  (newValue) => {
-    emit('update:formData', newValue);
-  },
-  { deep: true },
+  (newValue) => emit('update:formData', newValue),
+  { deep: true }
 );
 
-// 当平台变化时，重新生成任务名称（仅当无默认任务名时）
+// 平台变化时生成任务名称（仅无默认名称时）
 watch(
   () => props.platform,
-  (newVal, oldVal) => {
-    if (newVal !== oldVal && !props.defaultTaskName) {
+  (newVal) => {
+    if (newVal && !props.defaultTaskName) {
       formState.taskName = generateTaskName();
     }
   },
-  { immediate: true },
+  { immediate: true }
 );
 
-// 优化：监听默认数据变化，同步更新表单（不覆盖已有数据）
+// 监听默认数据变化（仅初始化一次）
 watch(
   [() => props.defaultContentGroups, () => props.defaultTaskName],
   ([newContentGroups, newTaskName]) => {
-    // 核心：仅当未设置过数据、且有有效数据时执行，避免循环
-    if (isFormDataSet.value || !newContentGroups || newContentGroups.length === 0) return;
+    if (initFlags.isFormDataSet || !newContentGroups?.length) return;
 
-    console.log('Step2接收父组件初始数据（仅一次）:', { newContentGroups, newTaskName });
-    // 仅赋值，不触发 @update:form-data（避免反哺父组件）
-    if (newTaskName && newTaskName.trim()) {
+    // 填充默认任务名称
+    if (newTaskName?.trim()) {
       formState.taskName = newTaskName;
     }
-    if (newContentGroups && newContentGroups.length > 0) {
-      formState.contentGroups = JSON.parse(JSON.stringify(newContentGroups)).map(group => ({
-        mediaType: group.mediaType || 0,
-        video: group.video || '',
-        picList: group.picList || [],
-        publishTime: group.publishTime || '',
-        title: group.title || '',
-        content: group.content || '',
-        selectedTags: group.selectedTags || [],
-        tagList: group.tagList || [],
-        selectedAccount: group.selectedAccount || '',
-        url: group.url || '',
-        taskId: group.taskId || 0,
-        publishStatus: group.publishStatus || 0,
-        controlEvaluationContent: group.controlEvaluationContent || '',
-        ifControlEvaluation: group.ifControlEvaluation || 0,
-      }));
-      parsingLoading.value = Array.from({ length: newContentGroups.length }, () => false);
-      videoUrlInputs.value = Array.from({ length: newContentGroups.length }, () => '');
-      optimizeLoading.value = Array.from({ length: newContentGroups.length }, () => false); // 新增
-      isFormDataSet.value = true; // 标记已设置，不再执行
-      console.log('Step2同步父组件初始数据完成（仅一次）:', formState.contentGroups);
-    }
+    // 初始化内容组（已封装到initDefaultContentGroups）
+    initDefaultContentGroups();
   },
-  { immediate: true } // 移除 deep: true，避免监听内部字段变化触发循环
+  { immediate: true }
 );
 
-// 监听选中账号+默认数据，仅初始化一次
+// 监听选中账号变化（仅初始化一次）
 watch(
   () => props.selectedAccounts,
   async (newSelectedAccounts) => {
-    if (isInitialized.value) return;
+    if (initFlags.isInitialized || props.defaultContentGroups?.length) return;
     await nextTick();
     initDefaultContentGroups();
-    optimizeLoading.value = Array.from({ length: formState.contentGroups.length }, () => false); // 新增
-    isInitialized.value = true;
-    console.log('Step2首次初始化完成（仅一次）:', formState);
+    initFlags.isInitialized = true;
   },
-  { immediate: true } // 移除 deep: true（selectedAccounts 是数组，浅监听即可）
+  { immediate: true }
 );
 
-// 生命周期
+// ========================== 生命周期 & 暴露方法 ==========================
 onMounted(() => {
-  // 初始化数据：优先使用父组件传递的默认值
-  initDefaultContentGroups();
-  console.log('Step2初始化完成:', formState);
+  // 初始化任务名称（无默认值时）
+  if (!props.defaultTaskName) {
+    formState.taskName = generateTaskName();
+  }
+  // 初始化内容组（防止watch未触发的兜底）
+  if (!initFlags.isInitialized && !props.defaultContentGroups?.length) {
+    initDefaultContentGroups();
+    initFlags.isInitialized = true;
+  }
 });
 
 // 暴露给父组件的方法
 defineExpose({
   validate,
   getFormData: () => formState,
-  // 允许父组件主动设置表单数据
   setFormData: (data: CreateForm) => {
     formState.taskName = data.taskName || '';
     formState.contentGroups = data.contentGroups || [];
     // 同步更新辅助数组
-    parsingLoading.value = Array.from({ length: formState.contentGroups.length }, () => false);
-    videoUrlInputs.value = Array.from({ length: formState.contentGroups.length }, () => '');
-    optimizeLoading.value = Array.from({ length: formState.contentGroups.length }, () => false); // 新增
-    originalContentMap.value = {}; // 清空原始内容映射
-    isFormDataSet.value = true; // 标记已设置
+    initContentGroupAssistArrays(formState.contentGroups.length);
+    assistState.originalContentMap = {}; // 清空原始文案映射
+    initFlags.isFormDataSet = true;
   }
 });
 </script>
 
 <template>
+  <!-- 模板部分完全保留原有逻辑，仅替换响应式变量名 -->
   <div class="step2-container">
     <!-- 已选择账号展示 -->
     <a-form-item label="已选择账号">
@@ -720,7 +688,7 @@ defineExpose({
             >
               <template #enterButton>
                 <a-button
-                  :loading="parsingLoading[groupIndex]"
+                  :loading="loadingStates.parsing[groupIndex]"
                   pre-icon="ant-design:search-outlined"
                   type="primary"
                   @click="HandleXHSUrl(groupIndex)"
@@ -806,7 +774,7 @@ defineExpose({
               :height="160"
             />
             <a-input-search
-              v-model:value="videoUrlInputs[groupIndex]"
+              v-model:value="assistState.videoUrlInputs[groupIndex]"
               placeholder="如果有视频链接也可以直接放入视频链接"
               enter-button="确定"
               allow-clear
@@ -890,7 +858,7 @@ defineExpose({
               <a-button
                 type="primary"
                 size="small"
-                :loading="optimizeLoading[groupIndex]"
+                :loading="loadingStates.optimize[groupIndex]"
                 @click="optimizeContent(groupIndex)"
                 style="margin-right: 8px"
               >
@@ -899,7 +867,7 @@ defineExpose({
               <a-button
                 size="small"
                 @click="revertContent(groupIndex)"
-                :disabled="!originalContentMap[groupIndex]"
+                :disabled="!assistState.originalContentMap[groupIndex]"
               >
                 回退
               </a-button>
@@ -978,19 +946,19 @@ defineExpose({
 
     <!-- AI生成内容选择弹窗 -->
     <Modal
-      v-model:open="selectContentModalVisible"
+      v-model:open="modalState.selectContentVisible"
       title="选择AI生成内容"
       width="80%"
       destroyOnClose
       @ok="handleSelectContentConfirm"
-      @cancel="selectContentModalVisible = false"
+      @cancel="modalState.selectContentVisible = false"
     >
       <div style="height: 400px; margin-bottom: 16px">
-        <SelectContentTable :table-loading="selectContentGridLoading" />
+        <SelectContentTable :table-loading="loadingStates.selectContentGrid" />
       </div>
       <template #footer>
         <Space>
-          <a-button @click="selectContentModalVisible = false">取消</a-button>
+          <a-button @click="modalState.selectContentVisible = false">取消</a-button>
           <a-button type="primary" @click="handleSelectContentConfirm">确认选择</a-button>
         </Space>
       </template>
@@ -999,6 +967,7 @@ defineExpose({
 </template>
 
 <style scoped>
+/* 样式部分完全保留 */
 .step2-container {
   padding: 20px;
 }
