@@ -324,6 +324,21 @@ async function handleConfirm() {
     return;
   }
 
+  // 核心优化：调用step2的校验方法，校验通过才允许提交
+  if (!step2.value) {
+    message.warning('内容设置组件加载失败，请刷新重试');
+    return;
+  }
+
+  // 调用子组件校验
+  const isFormValid = await step2.value.validate();
+  if (!isFormValid) {
+    return;
+  }
+
+  // 校验通过后再获取表单数据（确保数据最新）
+  step2FormData.value = step2.value.getFormData();
+
   if (!step2FormData.value) {
     message.warning('请完善内容设置');
     return;

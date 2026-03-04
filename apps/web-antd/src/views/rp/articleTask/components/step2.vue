@@ -5,7 +5,7 @@ import { DictEnum } from '@vben/constants';
 
 import { PlusOutlined } from '@ant-design/icons-vue';
 import message from 'ant-design-vue/es/message';
-import { Modal, Space, Empty } from 'ant-design-vue'; // 新增：导入Empty空数据组件
+import { Modal, Space, Empty } from 'ant-design-vue';
 
 import { CommonApi } from '#/api/xhs/common';
 import { ImageUpload, VideoUpload } from '#/components/upload';
@@ -14,14 +14,13 @@ import { GeneratedContentApi } from '#/api/ai/generatedContent';
 import { BitAccountApi } from '#/api/rp/bitAccount';
 import { useVbenVxeGrid, type VxeGridProps } from '#/adapter/vxe-table';
 
-// ========================== 类型定义（集中管理）==========================
+// ========================== 类型定义 ==========================
 interface Account {
   id: string;
   name: string;
   groupId: string;
 }
 
-// 新增：比特账号类型定义
 interface BitAccount {
   id: number;
   accountName: string;
@@ -43,7 +42,7 @@ interface ContentGroup {
   ifControlEvaluation: 0 | 1;
   controlEvaluationContent: string;
   ifBit: 0 | 1;
-  selectedBitAccount: number | ''; // 修正：支持number（接口返回id是number）和空字符串
+  selectedBitAccount: number | '';
   taskId?: number;
   publishStatus?: number;
 }
@@ -74,37 +73,31 @@ const emit = defineEmits<{
   validate: [valid: boolean];
 }>();
 
-// ========================== 响应式数据（按功能分类）=========================
-// 核心表单数据
+// ========================== 响应式数据 ==========================
 const formState = reactive<CreateForm>({
   taskName: '',
   contentGroups: [],
 });
 
-// 加载状态
 const loadingStates = reactive({
-  parsing: [] as boolean[], // 解析链接加载
-  optimize: [] as boolean[], // 文案优化加载
-  selectContentGrid: false, // AI内容选择表格加载
-  bitAccountLoading: false, // 新增：比特账号列表加载
+  parsing: [] as boolean[],
+  optimize: [] as boolean[],
+  selectContentGrid: false,
+  bitAccountLoading: false,
 });
 
-// 存储比特账号列表（修正：指定BitAccount类型）
 const bitAccountList = ref<BitAccount[]>([]);
 
-// 辅助输入/存储
 const assistState = reactive({
-  videoUrlInputs: [] as string[], // 视频链接输入框
-  originalContentMap: {} as Record<number, string>, // 原始文案映射
+  videoUrlInputs: [] as string[],
+  originalContentMap: {} as Record<number, string>,
 });
 
-// 弹窗相关
 const modalState = reactive({
   selectContentVisible: false,
   currentGroupIndex: -1,
 });
 
-// 初始化标记（避免重复执行）
 const initFlags = reactive({
   isInitialized: false,
   isFormDataSet: false,
@@ -114,7 +107,6 @@ const initFlags = reactive({
 const selectedAccountObjList = computed<Account[]>(() => props.selectedAccounts || []);
 const selectedAccountList = computed<string[]>(() => selectedAccountObjList.value.map(acc => acc.id));
 
-// 平台标签数量限制
 const maxTagCount = computed(() => {
   const platformLimitMap = {
     小红书: 10,
@@ -123,25 +115,15 @@ const maxTagCount = computed(() => {
   return platformLimitMap[props.platform as keyof typeof platformLimitMap];
 });
 
-// 新增：比特账号列表空数据判断
 const isBitAccountEmpty = computed(() => bitAccountList.value.length === 0);
 
-// ========================== 通用工具方法（抽离重复逻辑）=========================
-/**
- * 初始化内容组辅助数组（解析加载、视频输入、优化加载）
- * @param length 内容组数量
- */
+// ========================== 通用工具方法 ==========================
 const initContentGroupAssistArrays = (length: number) => {
   loadingStates.parsing = Array.from({ length }, () => false);
   loadingStates.optimize = Array.from({ length }, () => false);
   assistState.videoUrlInputs = Array.from({ length }, () => '');
 };
 
-/**
- * 解析关键词为标签列表（去重、清理分隔符）
- * @param keywordAnalysis 原始关键词数据
- * @returns 标准化标签列表
- */
 const parseKeywordAnalysis = (keywordAnalysis: any): string[] => {
   if (!keywordAnalysis) return [];
 
@@ -151,7 +133,6 @@ const parseKeywordAnalysis = (keywordAnalysis: any): string[] => {
   keywordList.forEach(keywordStr => {
     if (typeof keywordStr !== 'string' || !keywordStr.trim()) return;
 
-    // 清理#号 + 按多分隔符拆分 + 去重
     keywordStr.replace(/#/g, '').trim()
       .split(/[,，、\s]+/)
       .forEach(tag => {
@@ -163,9 +144,6 @@ const parseKeywordAnalysis = (keywordAnalysis: any): string[] => {
   return Array.from(tagSet);
 };
 
-/**
- * 生成默认任务名称
- */
 const generateTaskName = (): string => {
   if (!props.platform) return '';
 
@@ -175,13 +153,8 @@ const generateTaskName = (): string => {
   return `${platformName}-发布任务_${timeStr}`;
 };
 
-/**
- * 创建空的内容组
- * @param accountId 可选-默认选中的账号ID
- * @returns 空内容组
- */
 const createEmptyContentGroup = (accountId = ''): ContentGroup => ({
-  mediaType: 1, // 默认视频类型
+  mediaType: 1,
   video: '',
   picList: [],
   publishTime: '',
@@ -194,35 +167,25 @@ const createEmptyContentGroup = (accountId = ''): ContentGroup => ({
   ifControlEvaluation: 0,
   controlEvaluationContent: '',
   ifBit: 0,
-  selectedBitAccount: '', // 初始值为空字符串
+  selectedBitAccount: '',
   taskId: undefined,
   publishStatus: undefined,
 });
 
 // ========================== 内容组操作方法 ==========================
-/**
- * 添加内容组
- */
 const addContentGroup = (): void => {
   formState.contentGroups.push(createEmptyContentGroup());
   initContentGroupAssistArrays(formState.contentGroups.length);
 };
 
-/**
- * 移除内容组
- * @param index 要移除的索引
- */
 const removeContentGroup = (index: number): void => {
   if (formState.contentGroups.length <= 1) return;
 
-  // 移除内容组
   formState.contentGroups.splice(index, 1);
-  // 同步更新辅助数组
   loadingStates.parsing.splice(index, 1);
   loadingStates.optimize.splice(index, 1);
   assistState.videoUrlInputs.splice(index, 1);
 
-  // 重新映射原始文案（修正索引）
   const newOriginalContentMap: Record<number, string> = {};
   Object.entries(assistState.originalContentMap).forEach(([key, value]) => {
     const numKey = Number(key);
@@ -232,11 +195,7 @@ const removeContentGroup = (index: number): void => {
   assistState.originalContentMap = newOriginalContentMap;
 };
 
-/**
- * 初始化默认内容组（统一入口）
- */
 const initDefaultContentGroups = () => {
-  // 优先使用父组件传入的默认值
   if (props.defaultContentGroups?.length) {
     formState.contentGroups = props.defaultContentGroups.map(group => ({
       mediaType: group.mediaType || 0,
@@ -252,25 +211,19 @@ const initDefaultContentGroups = () => {
       ifControlEvaluation: group.ifControlEvaluation || 0,
       controlEvaluationContent: group.controlEvaluationContent || '',
       ifBit: group.ifBit || 0,
-      selectedBitAccount: group.selectedBitAccount || '', // 兼容空值
+      selectedBitAccount: group.selectedBitAccount || '',
       taskId: group.taskId || undefined,
       publishStatus: group.publishStatus || undefined,
     }));
     initFlags.isFormDataSet = true;
   } else {
-    // 无默认值时，为每个选中账号创建内容组
     formState.contentGroups = props.selectedAccounts.map(account => createEmptyContentGroup(account.id));
   }
 
-  // 初始化辅助数组
   initContentGroupAssistArrays(formState.contentGroups.length);
 };
 
 // ========================== 文案优化/回退 ==========================
-/**
- * 优化文案
- * @param groupIndex 内容组索引
- */
 const optimizeContent = async (groupIndex: number) => {
   const group = formState.contentGroups[groupIndex];
   if (!group?.content.trim()) {
@@ -278,7 +231,6 @@ const optimizeContent = async (groupIndex: number) => {
     return;
   }
 
-  // 首次优化时保存原始内容
   if (!assistState.originalContentMap[groupIndex]) {
     assistState.originalContentMap[groupIndex] = group.content;
   }
@@ -301,10 +253,6 @@ const optimizeContent = async (groupIndex: number) => {
   }
 };
 
-/**
- * 回退文案到优化前
- * @param groupIndex 内容组索引
- */
 const revertContent = (groupIndex: number) => {
   const originalContent = assistState.originalContentMap[groupIndex];
   if (!originalContent) {
@@ -317,19 +265,10 @@ const revertContent = (groupIndex: number) => {
 };
 
 // ========================== 链接解析/媒体处理 ==========================
-/**
- * 切换媒体类型
- * @param value 媒体类型 0-图片 1-视频
- * @param groupIndex 内容组索引
- */
 const handleChangeMediaType = (value: 0 | 1, groupIndex: number): void => {
   formState.contentGroups[groupIndex].mediaType = value;
 };
 
-/**
- * 解析小红书链接
- * @param groupIndex 内容组索引
- */
 const HandleXHSUrl = async (groupIndex: number): Promise<void> => {
   const group = formState.contentGroups[groupIndex];
   if (!group?.url) {
@@ -342,11 +281,9 @@ const HandleXHSUrl = async (groupIndex: number): Promise<void> => {
     const response = await CommonApi.handleXhsUrl({ url: group.url });
     if (!response) return;
 
-    // 填充基础信息
     group.title = response.title || '';
     group.content = response.desc || '';
 
-    // 处理媒体内容
     if (response.videoUrl) {
       group.mediaType = 1;
       group.video = response.videoUrl;
@@ -357,10 +294,9 @@ const HandleXHSUrl = async (groupIndex: number): Promise<void> => {
       group.video = '';
     }
 
-    // 处理标签（按平台限制）
     if (response.tags && Array.isArray(response.tags)) {
       group.tagList = response.tags;
-      const limit = maxTagCount.value ?? 5; // 无限制时默认5个
+      const limit = maxTagCount.value ?? 5;
       group.selectedTags = response.tags.slice(0, limit);
     }
 
@@ -373,10 +309,6 @@ const HandleXHSUrl = async (groupIndex: number): Promise<void> => {
   }
 };
 
-/**
- * 应用视频链接
- * @param groupIndex 内容组索引
- */
 const applyVideoUrl = (groupIndex: number) => {
   const url = assistState.videoUrlInputs[groupIndex];
   if (!url || (!url.startsWith('http') && !url.startsWith('blob:'))) {
@@ -388,23 +320,12 @@ const applyVideoUrl = (groupIndex: number) => {
 };
 
 // ========================== 标签/账号验证 ==========================
-/**
- * 检查账号是否已被使用
- * @param accountId 账号ID
- * @param excludeGroupIndex 排除的索引（当前编辑的内容组）
- * @returns 是否已使用
- */
 const isAccountUsed = (accountId: string, excludeGroupIndex: number): boolean => {
   return formState.contentGroups.some(
     (group, index) => index !== excludeGroupIndex && group.selectedAccount === accountId
   );
 };
 
-/**
- * 标签变化处理（限制数量）
- * @param newTags 新标签列表
- * @param groupIndex 内容组索引
- */
 const handleTagsChange = (newTags: string[], groupIndex: number) => {
   const limit = maxTagCount.value;
   if (limit === undefined || newTags.length <= limit) {
@@ -412,12 +333,11 @@ const handleTagsChange = (newTags: string[], groupIndex: number) => {
     return;
   }
 
-  // 超出限制时截断并提示
   formState.contentGroups[groupIndex].selectedTags = newTags.slice(0, limit);
   message.warn(`最多只能选择 ${limit} 个标签`);
 };
 
-// ========================== 表单验证 ==========================
+// ========================== 表单验证（核心优化）==========================
 /**
  * 验证单个内容组
  * @param group 内容组
@@ -425,17 +345,19 @@ const handleTagsChange = (newTags: string[], groupIndex: number) => {
  * @returns 是否验证通过
  */
 const validateContentGroup = (group: ContentGroup, index: number): boolean => {
+  // 1. 分发账号必填
   if (!group.selectedAccount) {
     message.warn(`内容组 ${index + 1} 请选择分发账号`);
     return false;
   }
 
-  if (!group.content) {
+  // 2. 正文内容必填（排除全空格）
+  if (!group.content.trim()) {
     message.warn(`内容组 ${index + 1} 请输入正文内容`);
     return false;
   }
 
-  // 媒体验证
+  // 3. 媒体验证
   if (group.mediaType === 0 && group.picList.length === 0) {
     message.warn(`内容组 ${index + 1} 请上传图片`);
     return false;
@@ -445,10 +367,19 @@ const validateContentGroup = (group: ContentGroup, index: number): boolean => {
     return false;
   }
 
-  // 新增：比特账号验证（开启比特时必填）
-  if (group.ifBit === 1 && !group.selectedBitAccount) {
-    message.warn(`内容组 ${index + 1} 开启比特后请选择比特账号`);
+  // 4. 控评内容校验（开启控评时必填，排除全空格）
+  if (group.ifControlEvaluation === 1 && !group.controlEvaluationContent.trim()) {
+    message.warn(`内容组 ${index + 1} 开启控评后请输入控评内容`);
     return false;
+  }
+
+  // 5. 比特账号校验（开启比特时必填，兼容数字ID）
+  if (group.ifBit === 1) {
+    const isEmpty = group.selectedBitAccount === '' || group.selectedBitAccount === undefined || group.selectedBitAccount === null;
+    if (isEmpty) {
+      message.warn(`内容组 ${index + 1} 开启比特后请选择比特账号`);
+      return false;
+    }
   }
 
   return true;
@@ -460,29 +391,33 @@ const validateContentGroup = (group: ContentGroup, index: number): boolean => {
  */
 const validate = async (): Promise<boolean> => {
   try {
-    // 基础验证
-    if (!formState.taskName) {
+    // 1. 任务名称必填（排除全空格）
+    if (!formState.taskName.trim()) {
       message.warn('请输入任务名称');
+      emit('validate', false);
       return false;
     }
 
-    // 验证所有内容组
+    // 2. 验证所有内容组
     for (let i = 0; i < formState.contentGroups.length; i++) {
       const group = formState.contentGroups[i];
       if (!group || !validateContentGroup(group, i)) {
+        emit('validate', false);
         return false;
       }
     }
 
+    // 3. 校验通过通知父组件
+    emit('validate', true);
     return true;
   } catch (error) {
     console.error('表单验证失败:', error);
+    emit('validate', false);
     return false;
   }
 };
 
 // ========================== AI内容选择 ==========================
-// 表格配置
 const selectContentGridOptions: VxeGridProps = {
   checkboxConfig: { highlight: true, reserve: true, trigger: 'cell' },
   columns: [
@@ -517,24 +452,16 @@ const selectContentGridOptions: VxeGridProps = {
   toolbarConfig: { refresh: true },
 };
 
-// 初始化表格
 const [SelectContentTable, selectContentTableApi] = useVbenVxeGrid({
   gridOptions: selectContentGridOptions,
 });
 
-/**
- * 打开AI内容选择弹窗
- * @param index 内容组索引
- */
 const openSelectContentModal = (index: number) => {
   modalState.currentGroupIndex = index;
   modalState.selectContentVisible = true;
   selectContentTableApi.reload();
 };
 
-/**
- * 确认选择AI内容并填充
- */
 const handleSelectContentConfirm = async () => {
   const selectedRows = selectContentTableApi.grid.getCheckboxRecords();
   if (selectedRows.length === 0) {
@@ -543,14 +470,12 @@ const handleSelectContentConfirm = async () => {
   }
 
   const targetGroup = formState.contentGroups[modalState.currentGroupIndex];
-  const selectedRow = selectedRows[0]; // 仅取第一条
+  const selectedRow = selectedRows[0];
 
   try {
-    // 填充基础字段
     targetGroup.title = selectedRow.parsedTitle || '';
     targetGroup.content = selectedRow.parsedParagraphs || '';
 
-    // 解析标签并按平台限制选择
     const tagList = parseKeywordAnalysis(selectedRow.keywordAnalysis);
     targetGroup.tagList = tagList;
     const limit = maxTagCount.value ?? 5;
@@ -564,67 +489,64 @@ const handleSelectContentConfirm = async () => {
   }
 };
 
-/**
- * 获取比特账号列表（核心优化：解析rows数组）
- */
+// ========================== 比特账号 ==========================
 const fetchBitAccountList = async () => {
   if (props.platform !== '抖音') {
-    bitAccountList.value = []; // 非抖音平台清空列表
+    bitAccountList.value = [];
     return;
   }
 
   try {
     loadingStates.bitAccountLoading = true;
-    const res = await BitAccountApi.getList(); // 调用比特账号列表接口
+    const res = await BitAccountApi.getList();
 
     bitAccountList.value = res?.rows || [];
   } catch (error) {
     console.error('获取比特账号列表失败:', error);
     message.error('获取比特账号列表失败，请稍后重试');
-    bitAccountList.value = []; // 出错时清空列表
+    bitAccountList.value = [];
   } finally {
     loadingStates.bitAccountLoading = false;
   }
 };
 
-// ========================== 监听逻辑 ==========================
-// 表单数据变化时通知父组件
-watch(
-  () => formState,
-  (newValue) => emit('update:formData', newValue),
-  { deep: true }
-);
+// ========================== 监听逻辑（新增实时校验）=========================
+// 表单数据变化时实时校验
+// watch(
+//   () => formState,
+//   async () => {
+//     await validate();
+//   },
+//   { deep: true, immediate: true }
+// );
 
-// 平台变化时生成任务名称（仅无默认名称时）
+// 平台变化时生成任务名称 + 加载比特账号
 watch(
   () => props.platform,
   (newVal) => {
     if (newVal && !props.defaultTaskName) {
       formState.taskName = generateTaskName();
     }
-    // 新增：平台切换时重新加载比特账号列表
     fetchBitAccountList();
   },
   { immediate: true }
 );
 
-// 监听默认数据变化（仅初始化一次）
+// 监听默认数据变化
 watch(
   [() => props.defaultContentGroups, () => props.defaultTaskName],
   ([newContentGroups, newTaskName]) => {
     if (initFlags.isFormDataSet || !newContentGroups?.length) return;
 
-    // 填充默认任务名称
     if (newTaskName?.trim()) {
       formState.taskName = newTaskName;
     }
-    // 初始化内容组（已封装到initDefaultContentGroups）
     initDefaultContentGroups();
   },
   { immediate: true }
 );
 
-// 监听选中账号变化（仅初始化一次）
+// 监听选中账号变化
 watch(
   () => props.selectedAccounts,
   async (newSelectedAccounts) => {
@@ -638,36 +560,30 @@ watch(
 
 // ========================== 生命周期 & 暴露方法 ==========================
 onMounted(() => {
-  // 初始化任务名称（无默认值时）
   if (!props.defaultTaskName) {
     formState.taskName = generateTaskName();
   }
-  // 初始化内容组（防止watch未触发的兜底）
   if (!initFlags.isInitialized && !props.defaultContentGroups?.length) {
     initDefaultContentGroups();
     initFlags.isInitialized = true;
   }
-  // 加载比特账号列表
   fetchBitAccountList();
 });
 
-// 暴露给父组件的方法
 defineExpose({
   validate,
   getFormData: () => formState,
   setFormData: (data: CreateForm) => {
     formState.taskName = data.taskName || '';
     formState.contentGroups = data.contentGroups || [];
-    // 同步更新辅助数组
     initContentGroupAssistArrays(formState.contentGroups.length);
-    assistState.originalContentMap = {}; // 清空原始文案映射
+    assistState.originalContentMap = {};
     initFlags.isFormDataSet = true;
   }
 });
 </script>
 
 <template>
-  <!-- 模板部分完全保留原有逻辑，仅优化比特账号选择器 -->
   <div class="step2-container">
     <!-- 已选择账号展示 -->
     <a-form-item label="已选择账号">
@@ -710,7 +626,7 @@ defineExpose({
       </div>
     </a-form-item>
 
-    <a-divider content-position="center" content="123">
+    <a-divider content-position="center">
       内容设置区域
     </a-divider>
 
@@ -730,7 +646,6 @@ defineExpose({
             </div>
           </div>
           <div class="header-actions">
-            <!-- 选择AI生成内容按钮 -->
             <a-button
               type="default"
               style="margin-right: 8px"
@@ -794,7 +709,6 @@ defineExpose({
                 </a-select>
               </a-col>
               <a-col :offset="2" :span="10">
-                <!-- 媒体类型选择 -->
                 <div class="form-section media-section">
                   <div class="section-title">
                     <i class="a-icon-picture-outline"></i>
@@ -861,7 +775,6 @@ defineExpose({
 
           <a-row>
             <a-col :span="12">
-              <!-- 标题 -->
               <div class="form-section content-section">
                 <div class="section-title">
                   <i class="a-icon-edit-outline"></i>
@@ -877,7 +790,6 @@ defineExpose({
               </div>
             </a-col>
             <a-col :offset="2" :span="10">
-              <!-- 发布时间 -->
               <div class="form-section time-section">
                 <div class="section-title">
                   <i class="a-icon-time"></i>
@@ -910,7 +822,6 @@ defineExpose({
               :maxlength="900"
               show-count
             />
-            <!-- 小红书专属：文案优化和回退按钮 -->
             <div v-if="props.platform === '小红书'" class="optimize-btn-group" style="margin-top: 8px;">
               <a-button
                 type="primary"
@@ -982,7 +893,7 @@ defineExpose({
             </a-space>
           </div>
 
-          <!-- 抖音专属：比特设置（优化后） -->
+          <!-- 抖音专属：比特设置（优化禁用逻辑） -->
           <div v-if="props.platform === '抖音'" class="form-section control-evaluation-section" style="margin-top: 24px;">
             <div class="section-title">
               <i class="a-icon-message"></i>
@@ -998,7 +909,6 @@ defineExpose({
                 />
               </a-space>
 
-              <!-- 比特账号选择器 -->
               <div v-if="contentGroup.ifBit === 1" style="width: 100%; margin-top: 8px;">
                 <a-select
                   v-model:value="contentGroup.selectedBitAccount"
@@ -1006,27 +916,24 @@ defineExpose({
                   placeholder="请选择比特账号"
                   style="width: 100%"
                   allow-clear
-                  :disabled="isBitAccountEmpty && !loadingStates.bitAccountLoading"
+                :disabled="loadingStates.bitAccountLoading || (isBitAccountEmpty && !loadingStates.bitAccountLoading)"
                 >
-                  <!-- 空数据提示 -->
-                  <template v-if="isBitAccountEmpty && !loadingStates.bitAccountLoading">
-                    <a-select-option value="" disabled>
-                      <Empty description="暂无可用的比特账号" :image="Empty.PRESENTED_IMAGE_SIMPLE" />
-                    </a-select-option>
-                  </template>
-
-                  <!-- 比特账号选项 -->
-                  <a-select-option
-                    v-for="item in bitAccountList"
-                    :key="item.id"
-                    :label="item.accountName"
-                    :value="item.id"
-                  >
-                    {{ item.accountName }}（{{ item.accountCode }}）
+                <template v-if="isBitAccountEmpty && !loadingStates.bitAccountLoading">
+                  <a-select-option value="" disabled>
+                    <Empty description="暂无可用的比特账号" :image="Empty.PRESENTED_IMAGE_SIMPLE" />
                   </a-select-option>
+                </template>
+
+                <a-select-option
+                  v-for="item in bitAccountList"
+                  :key="item.id"
+                  :label="item.accountName"
+                  :value="item.id"
+                >
+                  {{ item.accountName }}（{{ item.accountCode }}）
+                </a-select-option>
                 </a-select>
 
-                <!-- 空数据提示文本 -->
                 <div v-if="isBitAccountEmpty && !loadingStates.bitAccountLoading" style="margin-top: 8px; color: #999; font-size: 12px;">
                   暂无比特账号数据，请联系管理员添加
                 </div>
@@ -1034,7 +941,6 @@ defineExpose({
             </a-space>
           </div>
 
-          <!-- 删除按钮 -->
           <div
             v-if="formState.contentGroups.length > 1"
             class="group-remove-btn"
@@ -1076,7 +982,6 @@ defineExpose({
 </template>
 
 <style scoped>
-/* 样式部分完全保留 */
 .step2-container {
   padding: 20px;
 }
@@ -1121,32 +1026,6 @@ defineExpose({
   font-size: 16px;
   font-weight: 500;
   color: #262626;
-}
-
-.group-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ccc;
-}
-
-.status-dot.active {
-  background: #52c41a;
-}
-
-.status-text {
-  font-size: 14px;
-  color: #8c8c8c;
-}
-
-.status-text:has(+ .status-dot.active) {
-  color: #52c41a;
 }
 
 .header-actions {
@@ -1199,24 +1078,6 @@ defineExpose({
   font-size: 12px;
 }
 
-.media-switch {
-  transform: scale(1.1);
-}
-
-.upload-tips {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 12px;
-  background: #fff7e6;
-  border: 1px solid #ffd591;
-  border-radius: 4px;
-  font-size: 12px;
-  color: #fa8c16;
-  line-height: 1.5;
-}
-
 .content-input {
   width: 100%;
 }
@@ -1232,19 +1093,6 @@ defineExpose({
   border-top: 1px solid #e8e8e8;
 }
 
-.add-group-section {
-  text-align: center;
-  margin-top: 20px;
-  margin-bottom: 20px;
-}
-
-.add-group-section .a-button {
-  width: 200px;
-  height: 40px;
-  font-size: 14px;
-}
-
-/* 响应式布局 */
 @media (max-width: 768px) {
   .content-group-header {
     flex-direction: column;
