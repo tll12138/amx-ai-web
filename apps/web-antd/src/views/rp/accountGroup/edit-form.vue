@@ -9,7 +9,7 @@ import { useVbenForm } from '#/adapter/form';
 import { AccountGroupApi } from '#/api/rp/accountGroup';
 
 import { AccountConfigApi } from '#/api/rp/accountConfig';
-import { ModalSchema, rpanoOptions} from './data';
+import { ModalSchema, rpanoOptions } from './data';
 
 const emit = defineEmits<{ reload: [] }>();
 

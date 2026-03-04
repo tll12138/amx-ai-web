@@ -5,12 +5,13 @@ import { DictEnum } from '@vben/constants';
 
 import { PlusOutlined } from '@ant-design/icons-vue';
 import message from 'ant-design-vue/es/message';
-import { Modal, Space } from 'ant-design-vue';
+import { Modal, Space, Empty } from 'ant-design-vue'; // 新增：导入Empty空数据组件
 
 import { CommonApi } from '#/api/xhs/common';
 import { ImageUpload, VideoUpload } from '#/components/upload';
 import { getDictOptions } from '#/utils/dict';
 import { GeneratedContentApi } from '#/api/ai/generatedContent';
+import { BitAccountApi } from '#/api/rp/bitAccount';
 import { useVbenVxeGrid, type VxeGridProps } from '#/adapter/vxe-table';
 
 // ========================== 类型定义（集中管理）==========================
@@ -18,6 +19,14 @@ interface Account {
   id: string;
   name: string;
   groupId: string;
+}
+
+// 新增：比特账号类型定义
+interface BitAccount {
+  id: number;
+  accountName: string;
+  accountCode: string;
+  status: number;
 }
 
 interface ContentGroup {
@@ -33,6 +42,8 @@ interface ContentGroup {
   url: string;
   ifControlEvaluation: 0 | 1;
   controlEvaluationContent: string;
+  ifBit: 0 | 1;
+  selectedBitAccount: number | ''; // 修正：支持number（接口返回id是number）和空字符串
   taskId?: number;
   publishStatus?: number;
 }
@@ -75,7 +86,11 @@ const loadingStates = reactive({
   parsing: [] as boolean[], // 解析链接加载
   optimize: [] as boolean[], // 文案优化加载
   selectContentGrid: false, // AI内容选择表格加载
+  bitAccountLoading: false, // 新增：比特账号列表加载
 });
+
+// 存储比特账号列表（修正：指定BitAccount类型）
+const bitAccountList = ref<BitAccount[]>([]);
 
 // 辅助输入/存储
 const assistState = reactive({
@@ -107,6 +122,9 @@ const maxTagCount = computed(() => {
   };
   return platformLimitMap[props.platform as keyof typeof platformLimitMap];
 });
+
+// 新增：比特账号列表空数据判断
+const isBitAccountEmpty = computed(() => bitAccountList.value.length === 0);
 
 // ========================== 通用工具方法（抽离重复逻辑）=========================
 /**
@@ -175,6 +193,10 @@ const createEmptyContentGroup = (accountId = ''): ContentGroup => ({
   url: '',
   ifControlEvaluation: 0,
   controlEvaluationContent: '',
+  ifBit: 0,
+  selectedBitAccount: '', // 初始值为空字符串
+  taskId: undefined,
+  publishStatus: undefined,
 });
 
 // ========================== 内容组操作方法 ==========================
@@ -229,8 +251,10 @@ const initDefaultContentGroups = () => {
       url: group.url || '',
       ifControlEvaluation: group.ifControlEvaluation || 0,
       controlEvaluationContent: group.controlEvaluationContent || '',
-      taskId: group.taskId || 0,
-      publishStatus: group.publishStatus || 0,
+      ifBit: group.ifBit || 0,
+      selectedBitAccount: group.selectedBitAccount || '', // 兼容空值
+      taskId: group.taskId || undefined,
+      publishStatus: group.publishStatus || undefined,
     }));
     initFlags.isFormDataSet = true;
   } else {
@@ -421,6 +445,12 @@ const validateContentGroup = (group: ContentGroup, index: number): boolean => {
     return false;
   }
 
+  // 新增：比特账号验证（开启比特时必填）
+  if (group.ifBit === 1 && !group.selectedBitAccount) {
+    message.warn(`内容组 ${index + 1} 开启比特后请选择比特账号`);
+    return false;
+  }
+
   return true;
 };
 
@@ -534,6 +564,29 @@ const handleSelectContentConfirm = async () => {
   }
 };
 
+/**
+ * 获取比特账号列表（核心优化：解析rows数组）
+ */
+const fetchBitAccountList = async () => {
+  if (props.platform !== '抖音') {
+    bitAccountList.value = []; // 非抖音平台清空列表
+    return;
+  }
+
+  try {
+    loadingStates.bitAccountLoading = true;
+    const res = await BitAccountApi.getList(); // 调用比特账号列表接口
+
+    bitAccountList.value = res?.rows || [];
+  } catch (error) {
+    console.error('获取比特账号列表失败:', error);
+    message.error('获取比特账号列表失败，请稍后重试');
+    bitAccountList.value = []; // 出错时清空列表
+  } finally {
+    loadingStates.bitAccountLoading = false;
+  }
+};
+
 // ========================== 监听逻辑 ==========================
 // 表单数据变化时通知父组件
 watch(
@@ -549,6 +602,8 @@ watch(
     if (newVal && !props.defaultTaskName) {
       formState.taskName = generateTaskName();
     }
+    // 新增：平台切换时重新加载比特账号列表
+    fetchBitAccountList();
   },
   { immediate: true }
 );
@@ -592,6 +647,8 @@ onMounted(() => {
     initDefaultContentGroups();
     initFlags.isInitialized = true;
   }
+  // 加载比特账号列表
+  fetchBitAccountList();
 });
 
 // 暴露给父组件的方法
@@ -610,7 +667,7 @@ defineExpose({
 </script>
 
 <template>
-  <!-- 模板部分完全保留原有逻辑，仅替换响应式变量名 -->
+  <!-- 模板部分完全保留原有逻辑，仅优化比特账号选择器 -->
   <div class="step2-container">
     <!-- 已选择账号展示 -->
     <a-form-item label="已选择账号">
@@ -922,6 +979,58 @@ defineExpose({
                 :maxlength="500"
                 show-count
               />
+            </a-space>
+          </div>
+
+          <!-- 抖音专属：比特设置（优化后） -->
+          <div v-if="props.platform === '抖音'" class="form-section control-evaluation-section" style="margin-top: 24px;">
+            <div class="section-title">
+              <i class="a-icon-message"></i>
+              <span>比特设置</span>
+            </div>
+            <a-space direction="vertical" style="width: 100%">
+              <a-space>
+                <span>是否比特：</span>
+                <a-switch
+                  v-model:checked="contentGroup.ifBit"
+                  :checked-value="1"
+                  :unchecked-value="0"
+                />
+              </a-space>
+
+              <!-- 比特账号选择器 -->
+              <div v-if="contentGroup.ifBit === 1" style="width: 100%; margin-top: 8px;">
+                <a-select
+                  v-model:value="contentGroup.selectedBitAccount"
+                  :loading="loadingStates.bitAccountLoading"
+                  placeholder="请选择比特账号"
+                  style="width: 100%"
+                  allow-clear
+                  :disabled="isBitAccountEmpty && !loadingStates.bitAccountLoading"
+                >
+                  <!-- 空数据提示 -->
+                  <template v-if="isBitAccountEmpty && !loadingStates.bitAccountLoading">
+                    <a-select-option value="" disabled>
+                      <Empty description="暂无可用的比特账号" :image="Empty.PRESENTED_IMAGE_SIMPLE" />
+                    </a-select-option>
+                  </template>
+
+                  <!-- 比特账号选项 -->
+                  <a-select-option
+                    v-for="item in bitAccountList"
+                    :key="item.id"
+                    :label="item.accountName"
+                    :value="item.id"
+                  >
+                    {{ item.accountName }}（{{ item.accountCode }}）
+                  </a-select-option>
+                </a-select>
+
+                <!-- 空数据提示文本 -->
+                <div v-if="isBitAccountEmpty && !loadingStates.bitAccountLoading" style="margin-top: 8px; color: #999; font-size: 12px;">
+                  暂无比特账号数据，请联系管理员添加
+                </div>
+              </div>
             </a-space>
           </div>
 
