@@ -41,8 +41,8 @@ interface ContentGroup {
   url: string;
   ifControlEvaluation: 0 | 1;
   controlEvaluationContent: string;
-  ifBit: 0 | 1;
-  selectedBitAccount: number | '';
+  ifBite: 0 | 1;
+  biteNo: number;
   taskId?: number;
   publishStatus?: number;
 }
@@ -166,8 +166,8 @@ const createEmptyContentGroup = (accountId = ''): ContentGroup => ({
   url: '',
   ifControlEvaluation: 0,
   controlEvaluationContent: '',
-  ifBit: 0,
-  selectedBitAccount: '',
+  ifBite: 0,
+  biteNo: '',
   taskId: undefined,
   publishStatus: undefined,
 });
@@ -210,8 +210,8 @@ const initDefaultContentGroups = () => {
       url: group.url || '',
       ifControlEvaluation: group.ifControlEvaluation || 0,
       controlEvaluationContent: group.controlEvaluationContent || '',
-      ifBit: group.ifBit || 0,
-      selectedBitAccount: group.selectedBitAccount || '',
+      ifBite: group.ifBite || 0,
+      biteNo: group.biteNo || '',
       taskId: group.taskId || undefined,
       publishStatus: group.publishStatus || undefined,
     }));
@@ -374,8 +374,8 @@ const validateContentGroup = (group: ContentGroup, index: number): boolean => {
   }
 
   // 5. 比特账号校验（开启比特时必填，兼容数字ID）
-  if (group.ifBit === 1) {
-    const isEmpty = group.selectedBitAccount === '' || group.selectedBitAccount === undefined || group.selectedBitAccount === null;
+  if (group.ifBite === 1) {
+    const isEmpty = group.biteNo === '' || group.biteNo === undefined || group.biteNo === null;
     if (isEmpty) {
       message.warn(`内容组 ${index + 1} 开启比特后请选择比特账号`);
       return false;
@@ -903,15 +903,15 @@ defineExpose({
               <a-space>
                 <span>是否比特：</span>
                 <a-switch
-                  v-model:checked="contentGroup.ifBit"
+                  v-model:checked="contentGroup.ifBite"
                   :checked-value="1"
                   :unchecked-value="0"
                 />
               </a-space>
 
-              <div v-if="contentGroup.ifBit === 1" style="width: 100%; margin-top: 8px;">
+              <div v-if="contentGroup.ifBite === 1" style="width: 100%; margin-top: 8px;">
                 <a-select
-                  v-model:value="contentGroup.selectedBitAccount"
+                  v-model:value="contentGroup.biteNo"
                   :loading="loadingStates.bitAccountLoading"
                   placeholder="请选择比特账号"
                   style="width: 100%"

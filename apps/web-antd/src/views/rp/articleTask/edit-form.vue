@@ -45,6 +45,8 @@ interface ArticleTaskDetail {
     publishStatus?: number;
     ifControlEvaluation?: number;
     controlEvaluationContent?: string;
+    ifBite?: number;
+    biteNo?: number;
   }>;
 }
 
@@ -134,7 +136,7 @@ const resetAllFormState = () => {
  */
 const setPlatformDefaultDeviceType = (platform: string | undefined) => {
   if (platform === PLATFORM_DOUYIN) {
-    stepParams.value.deviceType = DEVICE_TYPE_PC;
+    stepParams.value.deviceType = DEVICE_TYPE_MOBILE;
   } else {
     stepParams.value.deviceType = undefined;
   }
@@ -222,6 +224,8 @@ function assembleStep2FormData(detailData: ArticleTaskDetail) {
         publishStatus: item.publishStatus || 0,
         ifControlEvaluation: item.ifControlEvaluation || 0,
         controlEvaluationContent: item.controlEvaluationContent || '',
+        ifBite: item.ifBite,
+        biteNo: item.biteNo,
       };
     })
   };
@@ -234,6 +238,7 @@ function assembleArticleTaskBo() {
   return {
     taskName: step2FormData.value.taskName,
     platform: stepParams.value.platform,
+    deviceType: stepParams.value.deviceType,
     accounts: selectedAccountDetails.value.map(account => ({
       id: account.id,
       accountName: account.name,
@@ -256,7 +261,9 @@ function assembleArticleTaskBo() {
         url: group.url,
         taskId: 0,
         ifControlEvaluation: group.ifControlEvaluation,
-        controlEvaluationContent: group.controlEvaluationContent
+        controlEvaluationContent: group.controlEvaluationContent,
+        ifBite: group.ifBite,
+        biteNo: group.biteNo
       }))
     },
     description: '',
