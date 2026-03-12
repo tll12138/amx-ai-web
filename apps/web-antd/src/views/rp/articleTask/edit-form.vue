@@ -429,7 +429,7 @@ async function handleCancel() {
           终端类型
         </span>
         <a-radio-group v-model:value="stepParams.deviceType" class="flex-1">
-          <a-radio :value="DEVICE_TYPE_PC">PC端</a-radio>
+<!--          <a-radio :value="DEVICE_TYPE_PC">PC端</a-radio>-->
           <a-radio :value="DEVICE_TYPE_MOBILE">手机端</a-radio>
         </a-radio-group>
       </div>

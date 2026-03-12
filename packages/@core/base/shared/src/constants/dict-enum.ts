@@ -29,7 +29,7 @@ export enum DictEnum {
   ARTICLE_TYPE = 'article_type',
   ARTICLE_RELEASE_STATUS = 'article_release_status',
   DEVICE_TYPE = 'device_type',
-
+  SEND_PLATFORM = 'send_platform',
   // RP 转载相关
   RP_PLATFORMS = 'rp_platforms',
 }
